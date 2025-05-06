@@ -21,6 +21,7 @@ type Action =
 const messageReducer = (state: StreamMessage[], action: Action): StreamMessage[] => {
   switch (action.type) {
     case 'APPEND_CHUNK': {
+      console.log('[useChatStream] APPEND_CHUNK', action.payload);
       const { sender, content } = action.payload;
       // Find the index of the last message from this specific sender
       const lastMessageIndex = state.findLastIndex(
@@ -162,77 +163,137 @@ export function useChatStream(isSendingRef: React.MutableRefObject<boolean>) {
         throw new Error('Response body is null');
       }
 
-      // Process the stream
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
       let buffer = '';
-      let currentSender: 'worker1' | 'worker2' | null = null;
-      let currentEvent: string | null = null;
 
+      console.log("[useChatStream] Starting to read from stream...");
+
+      // --- Updated Stream Processing Loop ---
       while (true) {
         const { done, value } = await reader.read();
-        if (done) {
-          console.log("Fetch stream processing finished.");
-          break;
+
+        // Log raw chunk received
+        if (value) {
+            console.log("[useChatStream] Raw chunk received:", JSON.stringify(value));
         }
 
-        buffer += value;
-        const lines = buffer.split('\n\n');
+        if (done) {
+          console.log("[useChatStream] Stream reader marked as done.");
+          // Final check on buffer in case the stream ended without \n\n
+          if (buffer.trim()) {
+              console.warn("[useChatStream] Stream done but buffer has remaining unprocessed content:", JSON.stringify(buffer));
+              // Optional: You could try one last parse attempt on the remaining buffer here
+              // processMessageBlock(buffer); // You'd need to extract the parsing logic into a function
+          }
+          break; // Exit the loop
+        }
 
-        // Process all complete messages except the last partial one
-        for (let i = 0; i < lines.length - 1; i++) {
-            const messageBlock = lines[i];
+        // Append new data to the buffer
+        buffer += value;
+
+        // Process buffer searching for complete SSE messages (\n\n separator)
+        let separatorIndex;
+        while ((separatorIndex = buffer.indexOf('\n\n')) >= 0) {
+            const messageBlock = buffer.substring(0, separatorIndex); // Extract the message block
+            buffer = buffer.substring(separatorIndex + 2); // Remove the block and separator from buffer
+
+            // *** Log entry into block processing ***
+            console.log("[useChatStream] Extracted message block for processing:", JSON.stringify(messageBlock));
+
+            if (!messageBlock.trim()) {
+                console.log("[useChatStream] Skipping empty block.");
+                continue; // Skip empty blocks (e.g., if input was just \n\n)
+            }
+
+            // --- Parse the individual message block ---
             const eventLines = messageBlock.split('\n');
-            let eventType = 'message';
+            let eventType: string | null = null;
             let eventData = '';
 
             for (const line of eventLines) {
-                if (line.startsWith('event:')) {
-                    eventType = line.substring('event:'.length).trim();
-                } else if (line.startsWith('data:')) {
-                    eventData += line.substring('data:'.length).trim();
+                 const trimmedLine = line.trim(); // Trim whitespace
+                if (trimmedLine.startsWith('event:')) {
+                    eventType = trimmedLine.substring('event:'.length).trim();
+                } else if (trimmedLine.startsWith('data:')) {
+                    // Simple concatenation for data lines within a block
+                    eventData += trimmedLine.substring('data:'.length).trim();
+                     // Note: Real multi-line data might need more careful handling if lines don't start with 'data:'
                 }
+                // Ignore comments (lines starting with ':') and other lines like 'id:'
             }
+            // --- End parsing block ---
 
-            // Handle custom events or message data
-            if (eventType === 'w1-chunk' || eventType === 'w2-chunk') {
-                currentSender = eventType === 'w1-chunk' ? 'worker1' : 'worker2';
-                dispatch({ type: 'APPEND_CHUNK', payload: { sender: currentSender, content: eventData } });
-            } else if (eventType === 'w1-done' || eventType === 'w2-done') {
-                currentSender = eventType === 'w1-done' ? 'worker1' : 'worker2';
-                dispatch({ type: 'MARK_COMPLETE', payload: { sender: currentSender } });
-            } else if (eventType === 'w1-error' || eventType === 'w2-error') {
-                currentSender = eventType === 'w1-error' ? 'worker1' : 'worker2';
-                dispatch({ type: 'MARK_ERROR', payload: { sender: currentSender, error: eventData || 'Unknown stream error' } });
+            console.log(`[useChatStream] Parsed - Event: ${eventType}, Data: ${JSON.stringify(eventData)}`);
+
+            // --- Dispatch based on parsed event ---
+            if (eventType) {
+                 if (eventType === 'w1-chunk' || eventType === 'w2-chunk') {
+                    const sender = eventType === 'w1-chunk' ? 'worker1' : 'worker2';
+                     console.log(`[useChatStream] Dispatching APPEND_CHUNK for ${sender} with data: ${JSON.stringify(eventData)}`); // Log before dispatch
+                    dispatch({ type: 'APPEND_CHUNK', payload: { sender, content: eventData } });
+                } else if (eventType === 'w1-done' || eventType === 'w2-done') {
+                    const sender = eventType === 'w1-done' ? 'worker1' : 'worker2';
+                     console.log(`[useChatStream] Dispatching MARK_COMPLETE for ${sender}`); // Log before dispatch
+                    dispatch({ type: 'MARK_COMPLETE', payload: { sender } });
+                } else if (eventType === 'w1-error' || eventType === 'w2-error') {
+                     const sender = eventType === 'w1-error' ? 'worker1' : 'worker2';
+                     console.log(`[useChatStream] Dispatching MARK_ERROR for ${sender} with error: ${JSON.stringify(eventData)}`); // Log before dispatch
+                    dispatch({ type: 'MARK_ERROR', payload: { sender, error: eventData || 'Unknown stream error' } });
+                } else {
+                    console.warn(`[useChatStream] Received unknown event type: ${eventType}`);
+                }
+            } else if (eventData) {
+                // Handle messages that only have 'data:' lines (implicitly 'message' event)
+                console.warn("[useChatStream] Received data without specific event type, treating as generic message:", eventData);
+                // Decide how to handle this. Maybe dispatch to a default worker or ignore?
+                // Example: dispatch({ type: 'APPEND_CHUNK', payload: { sender: 'worker1', content: eventData } });
+            } else {
+                 console.log("[useChatStream] Parsed block resulted in no eventType and no eventData. Block was:", JSON.stringify(messageBlock));
             }
-        }
+            // --- End dispatch ---
 
-        // Keep the last partial message in the buffer
-        buffer = lines[lines.length - 1];
-      }
+        } // End while loop processing buffer content
+      } // End while(true) reading stream
+      // --- End of Updated Stream Processing Loop ---
+
+      console.log("[useChatStream] Exited stream reading loop.");
 
     } catch (error: any) {
       if (error.name === 'AbortError') {
         console.log("Fetch aborted by user.");
-        messages.forEach(msg => {
+        // Mark any non-complete messages as interrupted
+        messages.forEach(msg => { // Use the 'messages' state captured at the start of useCallback
             if (!msg.isComplete && !msg.error) {
+                 console.log(`[useChatStream] Marking message ${msg.id} from ${msg.sender} as interrupted.`);
+                 // Dispatch might cause issues if component unmounted, safer to handle in UI maybe
                 dispatch({type: 'MARK_ERROR', payload: { sender: msg.sender, error: 'Interrupted by user'}});
             }
         });
       } else {
         console.error("Error in fetch stream:", error);
-        messages.forEach(msg => {
+        // Mark all non-complete messages with the fetch error
+        messages.forEach(msg => { // Use the 'messages' state
             if (!msg.isComplete && !msg.error) {
+                console.log(`[useChatStream] Marking message ${msg.id} from ${msg.sender} as error: ${error.message}`);
                 dispatch({type: 'MARK_ERROR', payload: { sender: msg.sender, error: error.message || 'Unknown fetch error'}});
             }
         });
+        // If no messages existed yet, maybe add a general error message?
+        if (messages.length === 0) {
+            // You could potentially dispatch a generic error message here if needed
+             console.log("[useChatStream] Dispatching general fetch error message.");
+            // dispatch({ type: 'MARK_ERROR', payload: { sender: 'worker1', error: `Fetch Error: ${error.message}` }});
+        }
       }
     } finally {
        if (abortControllerRef.current === abortController) {
            abortControllerRef.current = null;
        }
-       setStreamingState(false); // Use helper
+       setStreamingState(false); // Use helper to set streaming false and reset isSendingRef
+       console.log("[useChatStream] Stream processing finally block. isStreaming:", isStreaming); // isStreaming state might be stale here
     }
-  }, [setStreamingState]); // Use setStreamingState in dependency array
+  }, [setStreamingState, messages]); // Add 'messages' to dependency array for error handling logic
+
 
   // Function to manually abort the stream
   const stopStream = useCallback(() => {

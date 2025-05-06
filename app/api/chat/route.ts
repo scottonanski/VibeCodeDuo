@@ -1,117 +1,156 @@
-// app/api/chat/route.ts
-import { NextResponse } from "next/server";
-import { fetchChatCompletion, AiChatMessage } from "@/lib/services/ai-service";
-// Note: eventsource-parser is NOT needed here, we manually format SSE
+// /app/api/chat/route.ts  <-- Make sure this is the correct file path in your project
 
-export const runtime = 'edge'; // Optional: Use Edge Runtime for potential speed/cost benefits
-export const dynamic = 'force-dynamic'; // Ensure fresh execution
+import { fetchChatCompletion, type AiChatMessage } from '@/lib/services/ai-service'; // Adjust path if needed
+import { type NextRequest } from 'next/server';
 
-export async function POST(req: Request) {
-  try {
-    const { messages, worker1, worker2 } = await req.json();
+// Use Edge Runtime for streaming capabilities if possible, otherwise Node.js runtime works too.
+export const runtime = 'edge';
+// export const dynamic = 'force-dynamic'; // May be needed for Node.js runtime
 
-    // Validate payload (basic)
-    if (!messages || !worker1 || !worker2) {
-        return NextResponse.json({ error: "Missing required payload fields" }, { status: 400 });
-    }
+// Define the expected request body structure
+interface ChatApiPayload {
+    messages: AiChatMessage[];
+    worker1: { provider: 'OpenAI' | 'Ollama'; model: string };
+    worker2: { provider: 'OpenAI' | 'Ollama'; model: string };
+    // Add other potential payload properties if needed
+}
 
-    // Securely get API keys from SERVER environment
-    const apiKey1 = process.env.OPENAI_API_KEY_WORKER1;
-    const apiKey2 = process.env.OPENAI_API_KEY_WORKER2;
 
-    // --- Initiate worker streams ---
-    // Add AbortSignal propagation if AiService supports it
-    const controller = new AbortController(); // If you want server-side cancellation based on client disconnect
-    const signal = controller.signal;
+export async function POST(req: NextRequest) {
+    try {
+        // Use await req.json() which is standard for Next.js Edge/Node API routes
+        const payload = await req.json() as ChatApiPayload;
+        const { messages, worker1, worker2 } = payload;
 
-    const gen1 = fetchChatCompletion({
-      ...worker1,
-      messages,
-      apiKey: worker1.provider === 'openai' ? apiKey1 : undefined,
-      signal // Pass signal
-    });
+        console.log('[API Route] Received request. Worker1:', worker1, 'Worker2:', worker2, 'Messages:', messages?.length || 0);
 
-    const gen2 = fetchChatCompletion({
-      ...worker2,
-      messages,
-      apiKey: worker2.provider === 'openai' ? apiKey2 : undefined,
-      signal // Pass signal
-    });
+        if (!messages || !worker1 || !worker2) {
+             throw new Error("Invalid request payload. Missing messages, worker1, or worker2 info.");
+        }
 
-    const encoder = new TextEncoder();
+        // Retrieve API key securely (ensure this is set in your environment)
+        const openAIApiKeyWorker1 = process.env.OPENAI_API_KEY_WORKER1;
+        const openAIApiKeyWorker2 = process.env.OPENAI_API_KEY_WORKER2;
+        // Optional: Add similar check for Ollama base URL if needed
+        // const ollamaBaseUrl = process.env.OLLAMA_BASE_URL;
 
-    // --- Create the ReadableStream for the response ---
-    const responseStream = new ReadableStream({
-      async start(controller) {
-        let gen1Done = false;
-        let gen2Done = false;
+        // Validate OpenAI key if needed
+        if (worker1.provider === 'OpenAI' && !openAIApiKeyWorker1) {
+            console.error("[API Route] Missing OPENAI_API_KEY_WORKER1 environment variable for OpenAI worker 1.");
+            throw new Error("Server configuration error: Missing OpenAI API Key for Worker 1.");
+        }
+        if (worker2.provider === 'OpenAI' && !openAIApiKeyWorker2) {
+            console.error("[API Route] Missing OPENAI_API_KEY_WORKER2 environment variable for OpenAI worker 2.");
+            throw new Error("Server configuration error: Missing OpenAI API Key for Worker 2.");
+        }
 
-        // Helper to enqueue SSE formatted data
-        const sendEvent = (event: string, data: string) => {
-          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${data}\n\n`));
-        };
+        // Create generators
+        const generator1 = fetchChatCompletion({
+            provider: worker1.provider.toLowerCase() as 'openai' | 'ollama', // Convert to lowercase
+            model: worker1.model,
+            messages,
+            apiKey: worker1.provider === 'OpenAI' ? openAIApiKeyWorker1 : undefined,
+            // ollamaBasePath: ollamaBaseUrl, // Pass if using Ollama and custom URL
+            stream: true,
+        });
 
-        // Function to process a single generator
-        const processGenerator = async (
-            id: 1 | 2,
-            generator: AsyncGenerator<string>,
-            isDoneFlagSetter: (done: boolean) => void
-        ) => {
-            try {
-                for await (const chunk of generator) {
-                    if (chunk) { // Ensure chunk is not empty/null
-                      // Use the correct event type expected by the frontend
-                      sendEvent(`w${id}-chunk`, chunk);
+        const generator2 = fetchChatCompletion({
+            provider: worker2.provider.toLowerCase() as 'openai' | 'ollama', // Convert to lowercase
+            model: worker2.model,
+            messages,
+            apiKey: worker2.provider === 'OpenAI' ? openAIApiKeyWorker2 : undefined,
+            // ollamaBasePath: ollamaBaseUrl, // Pass if using Ollama and custom URL
+            stream: true,
+        });
+
+        // Create the response stream
+        const stream = new ReadableStream({
+            async start(controller) {
+                console.log('[API Route] ReadableStream started.');
+
+                const encoder = new TextEncoder();
+
+                function sendEvent(event: string, data: string) {
+                    // Log before sending
+                    console.log(`[API Route] Sending SSE - event: ${event}, data: ${JSON.stringify(data)}`);
+                    try {
+                         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${data}\n\n`));
+                    } catch (e) {
+                        console.error(`[API Route] Error enqueuing event ${event}:`, e);
+                        // Decide if you want to try closing the stream here
                     }
                 }
-                // Generator finished successfully
-                isDoneFlagSetter(true);
-                sendEvent(`w${id}-done`, 'true'); // This event type is already correct
-            } catch (error: any) {
-                console.error(`Worker ${id} stream error:`, error);
-                isDoneFlagSetter(true); // Mark as done even on error
-                 // Send error as a plain string, matching frontend expectation
-                 const errorMessage = `Worker ${id} failed: ${error.message || 'Unknown error'}`;
-                 sendEvent(`w${id}-error`, errorMessage);
+
+                async function processGenerator(gen: AsyncGenerator<string>, prefix: 'w1' | 'w2') {
+                    console.log(`[API Route] Starting to process generator ${prefix}`);
+                    let yieldedData = false;
+                    try {
+                        for await (const chunk of gen) {
+                            if (typeof chunk === 'string' && chunk.length > 0) { // Ensure chunk is a non-empty string
+                                yieldedData = true;
+                                sendEvent(`${prefix}-chunk`, chunk);
+                            } else if (chunk) {
+                                // Log if chunk is not a string or empty, might indicate an issue upstream
+                                console.warn(`[API Route] Received non-string or empty chunk from ${prefix} generator:`, chunk);
+                            }
+                            // No explicit else needed for empty strings if they are expected/ignorable
+                        }
+                         // Send done event ONLY if the generator finished without errors
+                        sendEvent(`${prefix}-done`, JSON.stringify({ finished: true })); // Send valid JSON
+                        console.log(`[API Route] Generator ${prefix} finished successfully. Yielded data: ${yieldedData}`);
+                    } catch (error: any) {
+                        console.error(`[API Route] Error processing generator ${prefix}:`, error);
+                        // Send an error event with valid JSON data
+                        sendEvent(`${prefix}-error`, JSON.stringify({ message: error.message || 'Failed to process stream' }));
+                         console.log(`[API Route] Generator ${prefix} finished with error. Yielded data before error: ${yieldedData}`);
+                    }
+                }
+
+                // Run both generators concurrently and wait for both to settle (finish or error)
+                await Promise.allSettled([ // Use allSettled to ensure both run even if one fails
+                    processGenerator(generator1, 'w1'),
+                    processGenerator(generator2, 'w2')
+                ]).then(results => {
+                    console.log("[API Route] Both generator processing settled.");
+                    results.forEach((result, index) => {
+                        if (result.status === 'rejected') {
+                            console.error(`[API Route] Promise for generator ${index + 1} rejected:`, result.reason);
+                        }
+                    });
+                });
+
+
+                console.log('[API Route] Both generators finished processing. Closing stream.');
+                try {
+                     controller.close();
+                } catch (e) {
+                     console.error("[API Route] Error closing stream controller:", e);
+                }
+            },
+            cancel(reason) {
+                 console.log('[API Route] Stream cancelled. Reason:', reason);
+                 // You might want to signal cancellation to the generators here
+                 // This requires passing the AbortSignal down to fetchChatCompletion
+                 // and handling it there, potentially using reader.cancel() or aborting fetch.
             }
-        };
+        });
 
+        return new Response(stream, {
+            status: 200, // Ensure status is 200 for successful stream initiation
+            headers: {
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache, no-transform', // Essential for SSE
+                'Connection': 'keep-alive', // Essential for SSE
+                // 'X-Content-Type-Options': 'nosniff', // Good practice
+            },
+        });
 
-        // Process both generators concurrently
-        // We don't necessarily need Promise.allSettled here anymore,
-        // just run both processes and let them manage their done flags.
-        const worker1Promise = processGenerator(1, gen1, (done) => { gen1Done = done; });
-        const worker2Promise = processGenerator(2, gen2, (done) => { gen2Done = done; });
-
-
-        // Wait for both processes to complete (either success or error)
-        await Promise.all([worker1Promise, worker2Promise]);
-
-        // All processing finished, close the stream
-        console.log("Both workers finished processing. Closing server stream.");
-        controller.close();
-
-      }, // End start()
-
-      cancel(reason) {
-        console.log("Client disconnected, cancelling server stream.", reason);
-        // controller.abort(); // Abort the fetchChatCompletion calls if AiService uses the signal
-      }
-    }); // End new ReadableStream
-
-    // --- Return the stream response ---
-    return new NextResponse(responseStream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache, no-transform", // no-transform is important for SSE
-        "Connection": "keep-alive",
-        // "X-Accel-Buffering": "no", // Useful for Nginx proxying
-      },
-    });
-
-  } catch (error: any) {
-    console.error("API Route Error:", error);
-    // Ensure a Response object is returned even for top-level errors
-    return NextResponse.json({ error: error.message || 'Failed to process chat request' }, { status: 500 });
-  }
+    } catch (error: any) {
+        console.error("[API Route] Error in POST handler:", error);
+        // Return a JSON error response if setup fails before streaming starts
+        return new Response(JSON.stringify({ error: error.message || 'An unknown error occurred' }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+        });
+    }
 }

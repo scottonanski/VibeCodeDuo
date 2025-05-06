@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { SendHorizontalIcon, SquareIcon, AlertTriangleIcon } from 'lucide-react'; // Import Stop/Error icons
 import type { StreamMessage } from '@/hooks/useChatStream'; // Use type-only import
 import { useChatStream } from '@/hooks/useChatStream';
+import { Settings } from "@/components/ui/settings-panel";
 
 // Define the UI message type
 export type Message = {
@@ -20,7 +21,11 @@ export type Message = {
     timestamp: number;  // Display timestamp
 };
 
-export function ChatInterface() {
+interface ChatInterfaceProps {
+  settings: Settings;
+}
+
+export function ChatInterface({ settings }: ChatInterfaceProps) {
   // State for the full conversation history displayed in the UI
   const [conversation, setConversation] = useState<Message[]>([]);
   // State for the input field
@@ -32,10 +37,24 @@ export function ChatInterface() {
 
   // Use the updated hook, destructure new values
   // Pass the ref down to the hook
-  const { messages: streamMessages, startStream, stopStream, isStreaming } = useChatStream(isSendingRef);
+   const { messages: streamMessages, startStream, stopStream, isStreaming } = useChatStream(isSendingRef);
+
+  // Map StreamMessage[] to Message[] for UI compatibility
+  const mappedStreamMessages: Message[] = streamMessages.map(sm => ({
+    id: sm.id,
+    uiId: sm.id,
+    sender: sm.sender,
+    content: sm.content,
+    isComplete: sm.isComplete,
+    error: sm.error,
+    timestamp: Date.now(), // Use a real timestamp if available
+  }));
 
   // --- Effect to merge stream messages into the UI conversation state ---
-   useEffect(() => {
+    useEffect(() => {
+        if (streamMessages.length > 0) {
+            console.log('[ChatInterface] useEffect triggered by streamMessages change. New streamMessages:', JSON.stringify(streamMessages));
+        }
     setConversation(prevConversation => {
         // Create a map of the latest stream messages by their ID (sender in this case)
         const streamMsgMap = new Map(streamMessages.map(sm => [sm.id, sm]));
@@ -141,8 +160,8 @@ export function ChatInterface() {
         // Define worker settings (Using models from Memory)
         const payload = {
             messages: apiMessages,
-            worker1: { provider: "ollama", model: "llama3.2:3b" },
-            worker2: { provider: "ollama", model: "gemma3:1b" },
+            worker1: { provider: settings.provider, model: settings.worker1Model },
+            worker2: { provider: settings.provider, model: settings.worker2Model },
         };
 
         // Trigger the stream
@@ -161,7 +180,7 @@ export function ChatInterface() {
     //     isSendingRef.current = false;
     // }
 
-  }, [input, conversation, startStream, isStreaming]); // Include necessary dependencies
+  }, [input, conversation, startStream, isStreaming, settings]); // Include necessary dependencies
 
   // --- Function to get Avatar and Style details based on message ---
   const getMessageStyle = (message: Message) => {
@@ -203,7 +222,7 @@ export function ChatInterface() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 dark:bg-slate-900"> {/* Ensure full height & add dark mode bg */}
+    <div className="flex flex-col h-full dark:bg-slate-900"> {/* Ensure full height & add dark mode bg */}
       <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
          {/* Optional: Add max-width and center content */}
         <div className="space-y-4 max-w-4xl mx-auto">

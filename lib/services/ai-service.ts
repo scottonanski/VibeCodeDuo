@@ -7,7 +7,7 @@ export type AiChatMessage = {
 };
 
 type FetchChatCompletionArgs = {
-    provider: 'openai' | 'ollama'; // Determine which API to call
+    provider: 'openai' | 'ollama' | 'OpenAI'; // Determine which API to call
     model: string;
     messages: AiChatMessage[];
     apiKey?: string; // Optional: Only needed for OpenAI
@@ -37,7 +37,7 @@ export async function* fetchChatCompletion({
     let body: Record<string, any>;
 
     // --- Prepare request based on provider ---
-    if (provider === 'openai') {
+    if (provider === 'openai' || provider === 'OpenAI') {
         if (!apiKey) {
             throw new Error("[AiService] OpenAI provider requires an API key.");
         }
@@ -51,7 +51,7 @@ export async function* fetchChatCompletion({
         // }
         console.log('[AiService] Calling OpenAI API:', { endpoint, model, apiKeyPreview: apiKey ? `${apiKey.slice(0, 6)}...` : '(none)' });
 
-    } else if (provider === 'ollama') {
+    } else if (provider === 'ollama' || provider === 'Ollama') {
         endpoint = `${ollamaBasePath.replace(/\/$/, '')}/api/chat`; // Ensure no trailing slash
         // Ollama typically doesn't require an Authorization header
         body = { model, messages, stream }; // Ollama structure might differ slightly, adjust if needed
@@ -109,7 +109,7 @@ export async function* fetchChatCompletion({
             buffer += decoder.decode(value, { stream: true }); // Decode chunk into buffer
 
             // Process buffer line by line or by JSON object for Ollama
-            if (provider === 'openai') {
+            if (provider === 'openai' || provider === 'OpenAI') {
                 const lines = buffer.split("\n");
                 buffer = lines.pop() || ""; // Keep the last partial line in the buffer
 
