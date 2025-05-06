@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import FileTree from "@/components/ui/file-tree"
-import { ChatInterface } from "@/components/ui/chat-interface"
+import { BuildInterface } from "@/components/ui/BuildInterface"
 import CodeEditor from "@/components/ui/code-editor"
 import Preview from "@/components/ui/preview"
 import { FileSystemProvider } from "@/context/file-system-context"
@@ -16,8 +16,8 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>({
     provider: "Ollama",
-    worker1Model: "llama2",
-    worker2Model: "mistral",
+    worker1Model: "deepcoder:1.5b",
+    worker2Model: "qwen3:4b",
   });
 
   // Handler for confirming settings changes
@@ -67,7 +67,7 @@ export default function Home() {
 
             {/* Middle Panel: Chat Interface */}
             <ResizablePanel defaultSize={40} minSize={30}>
-              <ChatInterface settings={settings} />
+              <BuildInterface settings={settings} />
             </ResizablePanel>
 
             <ResizableHandle withHandle />

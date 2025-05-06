@@ -4,9 +4,20 @@ import { Button } from "@/components/ui/button";
 
 // Stubbed model lists
 // OpenAI models remain static
-const OPENAI_MODELS = ["gpt-4.1-nano-2025-04-14", "gpt-3.5-turbo-0125"];
+const OPENAI_MODELS = [
+  "gpt-4.1-nano-2025-04-14",
+  "gpt-3.5-turbo-0125"
+];
 
-const DEFAULT_OLLAMA_MODELS = ["llama3.2:3b", "gemma3:1b"];
+const DEFAULT_OLLAMA_MODELS = [
+  "deepcoder:1.5b",
+  "qwen3:4b",
+  "gemma3:1b",
+  "llama3.2:3b",
+  "qwen2.5:7b",
+  "gemma3:4b",
+  "deepseek-r1:8b"
+];
 
 type Provider = "Ollama" | "OpenAI";
 

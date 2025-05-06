@@ -1,147 +1,144 @@
-
-
-
 <p align="center">
   <img src="./public/banner.png" alt="VibeCodeDuo Banner" width="100%" />
 </p>
 
-<h1 align="center">VibeCodeDuo</h1>
 
-<p align="center">
-  🧠 Two AIs. One Codebase. Infinite Possibilities.  
-  <br />
-  Collaborative code generation with dual AI workers.
-</p>
+# **🚀 VibeCodeDuo - Turn-Based Orchestrator: A Revolution in AI Collaboration 🔥**
 
-<p align="center">
-  <a href="https://nextjs.org/"><img src="https://img.shields.io/badge/Built%20with-Next.js-000?style=for-the-badge&logo=nextdotjs" /></a>
-  <a href="https://tailwindcss.com/"><img src="https://img.shields.io/badge/Tailwind-CSS-38bdf8?style=for-the-badge&logo=tailwindcss" /></a>
-  <a href="https://shadcn.dev/"><img src="https://img.shields.io/badge/UI-Shadcn%2FUI-7c3aed?style=for-the-badge" /></a>
-  <a href="#"><img src="https://img.shields.io/github/license/your-username/vibecodeduo?style=for-the-badge" /></a>
-</p>
+Welcome to **VibeCodeDuo's** cutting-edge **Turn-Based Orchestrator** branch! 🎉 This powerful feature **redefines the way AI agents collaborate** to create and refine software. We’re moving beyond mere concurrent AI responses and building a **stateful, turn-based pipeline** where AI agents **build, review, and iteratively refine** software projects.
 
----
+## **💡 The Vision: Orchestrating Seamless Multi-Agent AI Collaboration 🤖💻**
 
-## 🚀 Overview
+At the heart of VibeCodeDuo is a **game-changing AI collaboration system** designed to simulate a real-world software development process. Multiple **AI models**—customizable for both OpenAI and local Ollama instances—work in tandem to **refine** and **iterate** on each other’s contributions. This isn’t just a chat; this is **live collaboration** between **AI agents** with distinct roles, pushing code forward, reviewing progress, and refining results.
 
-**VibeCodeDuo** is a full-stack web app that lets you chat with **two AI models at once**, offering a dynamic environment for pair programming, code review, and creative collaboration.
+### **🔑 Key Principles of the System:**
 
-With **real-time dual streaming**, **multi-provider LLM support**, and a slick **React + Tailwind UI**, it brings the future of developer tooling into your browser.
+* **Multi-Agent Collaboration:** 🧠🤖
 
----
+  * Orchestrates a "Refiner" bot to clarify user prompts and two "Worker" bots: Worker 1 for code generation, and Worker 2 for structured code review. These bots work in a **turn-based loop** to ensure optimal code output.
 
-## 🧠 Features
+* **Stateful Pipeline:** 🌱🔄
 
-- ⚡ **Simultaneous dual-AI interaction**
-- 🌐 Supports **OpenAI, Ollama**, and more
-- 🧵 **Concurrent Server-Sent Events (SSE)**
-- 🎨 UI powered by **Shadcn/UI + Tailwind CSS**
-- 🧠 AI model selection + role assignment
-- 🔑 Secure per-model API key usage
+  * Managed by the backend orchestrator (`collaborationPipeline.ts`), this system seamlessly handles the entire project lifecycle—tracking files, maintaining conversation history, and adjusting collaboration flow based on feedback from Worker 2 (Review Bot).
+
+* **Structured Communication:** 📡💬
+
+  * Using **Server-Sent Events (SSE)**, this pipeline streams rich `PipelineEvent`s (like file changes and AI output) directly to the frontend for **real-time updates**.
+
+* **IDE-Centric UI:** 🖥️✨
+
+  * The frontend (`BuildInterface.tsx`, `useBuildStream.ts`) mirrors the feel of a real-world IDE, displaying not just a **chat log**, but a **live build process**—showing every update, file change, and agent interaction.
 
 ---
 
-## 🔍 How It Works
+## **🔥 Current Branch Status & Achievements 🚀**
 
-```mermaid
-sequenceDiagram
-  participant User
-  participant Frontend
-  participant Backend
-  participant AI1
-  participant AI2
+### **🔧 Backend (`src/lib/orchestration/`, `src/app/api/chat/route.ts`):**
 
-  User->>Frontend: Select models + prompt
-  Frontend->>Backend: Send chat request
-  Backend->>AI1: Stream request (SSE)
-  Backend->>AI2: Stream request (SSE)
-  AI1-->>Backend: w1-chunk
-  AI2-->>Backend: w2-chunk
-  Backend-->>Frontend: SSE stream (tagged)
-  Frontend-->>User: Live dual-AI chat
-````
+* ✅ **Fully Functional Orchestration Pipeline:**
 
----
+  * The system successfully manages the **multi-turn interactions** between the Refiner, Worker 1 (Code), Worker 2 (Review), and Worker 1 (Revisions based on feedback).
+  * Tracks state (`CollaborationState`) to ensure smooth transitions across stages (refine → code → review → revise).
+  * Implements **conditional logic** to direct collaboration flow based on Worker 2’s JSON feedback (e.g., `APPROVED`, `REVISION_NEEDED`).
 
-## 📂 Project Structure Highlights
+* ✅ **Secure & Scalable API Key Management:**
 
-```
-src/
-├── components/
-│   └── ui/chat-interface.tsx
-├── hooks/
-│   └── useChatStream.ts
-├── app/api/chat/
-│   └── route.ts  ← Edge API with dual streaming
-├── lib/
-│   └── fetchChatCompletion.ts
-```
+  * API keys are securely loaded from `.env.local` for each worker, ensuring seamless integrations and robust security.
+
+* ✅ **Structured JSON Feedback:**
+
+  * Worker 2 generates structured feedback in **JSON format**, enabling cleaner parsing and precise revisions.
+
+* ✅ **Context Window Management:**
+
+  * Implemented `getTruncatedHistory` to manage conversation history and prevent token overflow in long collaborations.
+
+* ✅ **SSE Streaming:**
+
+  * The API is properly streaming all relevant events to the frontend, keeping the collaboration live and fluid.
+
+* ✅ **Modular Design:**
+
+  * Clean separation of concerns between the orchestrator pipeline, individual stage handlers, and LLM services ensures **scalability** and **maintainability**.
 
 ---
 
-## 🧪 Tech Stack
+### **🌐 Frontend (`src/hooks/useBuildStream.ts`, `src/components/ui/BuildInterface.tsx`):**
 
-| Layer       | Technology                          |
-| ----------- | ----------------------------------- |
-| Frontend    | React (Next.js)                     |
-| UI Library  | Shadcn/UI, TailwindCSS, Radix UI    |
-| Streaming   | Server-Sent Events (Edge Runtime)   |
-| Backend     | Next.js API Routes + Edge Functions |
-| LLM Support | OpenAI, Ollama                      |
+* ✅ **`useBuildStream` Hook:**
 
----
+  * Connects to the SSE endpoint, manages **real-time state**, and ensures smooth, incremental updates for the frontend.
+  * Tracks `messages`, `projectFiles`, `pipelineStage`, and other key variables to keep the UI in sync with the backend.
 
-## 🚧 Roadmap
+* ✅ **`BuildInterface.tsx` Component:**
 
-### 🤝 AI Collaboration Modes
+  * **Displays the entire live process**:
 
-* 🔁 Turn-based refinement
-* 🧱 Parallel responsibility (HTML/CSS or FE/BE split)
-* 🛠️ Refactorer + Coder pairing
-
-### 🔧 Project Memory & State
-
-* File tree management
-* Incremental code synthesis
-* Dependency tracking
-
-### 🚀 SaaS Features
-
-* 🔐 Authentication & roles
-* 💳 Stripe billing
-* 🧰 Dashboard + analytics
-* 🧠 Prompt injection protection
-* 🔄 Rate limiting & usage metrics
+    * **Live status bar** showing current stage.
+    * **Project files in real-time** within a `<pre><code>` tag display.
+    * **Dynamic chat/log** displaying the interactions between bots (AI textual output).
+  * Features UI controls to **start/stop the pipeline** and manage streaming behavior.
 
 ---
 
-## 🛠 Getting Started
+### **🎯 Overall:**
 
-```bash
-git clone https://github.com/your-username/vibecodeduo
-cd vibecodeduo
-pnpm install
-pnpm dev
-```
-
-Create a `.env.local` with:
-
-```bash
-OPENAI_API_KEY_WORKER1=your-key-here
-OPENAI_API_KEY_WORKER2=your-other-key-here
-```
+* The **multi-agent collaboration system** is **fully operational**—workers are collaborating, refining code, and iterating effectively.
+* Backend logic for **API key management**, **JSON parsing**, **SSE streaming**, and **context handling** is **fully functional**.
+* The frontend provides a rich, **live interface**, capturing the essence of a **real-time development environment** with **project file updates** and **AI-driven interactions**.
 
 ---
 
-## 💬 Contribute & Collaborate
+## **⚠️ Known Issues & Next Steps 🔧**
 
-Got ideas? Want to help with the AI loop, UX polish, or deploying this to production?
-**Pull requests are welcome** — let's shape the future of AI-assisted development together.
+### **UI Enhancements (Next Priority):**
 
-> *Made with 🔥 by developers who vibe with AI.*
+* **Syntax Highlighting:** 🌈🖋️
+
+  * Add **syntax highlighting** for the code displayed in `BuildInterface.tsx` to improve readability (consider using `react-syntax-highlighter`).
+
+* **Chat/Log Formatting:** 📜💬
+
+  * Clean up how **AI explanations** and **reviews** are displayed, ensuring smoother UX by distinguishing between message types.
+
+* **Error Handling:** ❌⚠️
+
+  * Ensure **errors** (e.g., `pipeline_error` events) are clearly communicated in the UI.
+
+* **Button State Logic:** 🔲🔳
+
+  * Refine the state of **"Send"** and **"Stop"** buttons, ensuring proper interaction logic during pipeline execution.
 
 ---
 
-<p align="center">
-  <em>Join the Duo. Build with AI.</em>
-</p>
+### **Advanced Context Management (Future):** 🧠📚
+
+* Investigate **advanced summarization** strategies for long collaborations to maintain a lean and manageable context window while keeping critical data intact.
+
+---
+
+### **Multi-File Project Support (Future):** 📂✨
+
+* Expand the system to handle **multiple files** by:
+
+  * Allowing the AI agents to **propose** and **scaffold new files** (`scaffoldStage`).
+  * Introducing a tree-like **project file structure**.
+  * Allowing the user or AI agents to choose which file to focus on.
+  * Updating the frontend to include a **file tree** and **tabbed editors** for easy file navigation.
+
+---
+
+### **In-depth Revision Guidance (Ongoing):** 🔄📝
+
+* Continuously fine-tune the **revision prompts** to ensure that Worker 1 takes **precise actions** based on Worker 2’s review (e.g., addressing `key_issues` with more specificity).
+
+---
+
+## **🚀 How to Run This Branch:**
+
+1. Ensure your `.env.local` is populated with `OPENAI_API_KEY_WORKER1` and `OPENAI_API_KEY_WORKER2`.
+2. Run `pnpm install` to install any new dependencies.
+3. Start the project with `pnpm run dev`.
+4. Open the app in your browser and submit a prompt. **Watch the magic happen** as the AI agents begin their collaborative process!
+
+---

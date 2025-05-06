@@ -53,7 +53,7 @@ export function ChatInterface({ settings }: ChatInterfaceProps) {
   // --- Effect to merge stream messages into the UI conversation state ---
     useEffect(() => {
         if (streamMessages.length > 0) {
-            console.log('[ChatInterface] useEffect triggered by streamMessages change. New streamMessages:', JSON.stringify(streamMessages));
+            // console.log('[ChatInterface] useEffect triggered by streamMessages change. New streamMessages:', JSON.stringify(streamMessages));
         }
     setConversation(prevConversation => {
         // Create a map of the latest stream messages by their ID (sender in this case)

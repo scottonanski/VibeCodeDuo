@@ -1,0 +1,1 @@
+// lib/orchestration/stages/scaffoldStage.ts
