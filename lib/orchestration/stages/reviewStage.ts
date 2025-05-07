@@ -2,6 +2,8 @@
 
 import type { ReviewStageParams, StageEvent, AiChatMessage } from './types'; // Assuming AiChatMessage is also in types.ts or imported
 import { callLLMStream } from '@/lib/services/llmService';
+import { parseReviewOutput } from '@/lib/utils/jsonParser';
+
 
 export async function* reviewStage({
   filename,
@@ -21,43 +23,51 @@ export async function* reviewStage({
 
   // V V V V  NEW PROMPT FROM CHATGPT V V V V
   const userPrompt = `
-Review the following code provided by Worker 1. Your review should include:
-- An overall assessment status: [APPROVED | REVISION_NEEDED | NEEDS_CLARIFICATION]
-- A list of key issues (if any) that need to be addressed, presented as a list of short, actionable points.
-- A specific action or next step for Worker 1 (e.g., "Refactor function X" or "Pause for user input").
-
-Ensure your entire response is **ONLY** the valid JSON object described above, without any additional text before or after it. 
-
-Please wrap the JSON object in triple backticks like so:
-
-\`\`\`json
-{
-  "status": "[status]",
-  "key_issues": ["[issue1]", "[issue2]", ...],
-  "next_action_for_w1": "[action]"
-}
-\`\`\`
-
-Your response should be a clear and structured JSON object that can be parsed to guide the next steps in the collaboration.
-
----
-**Context for your review:**
-
-**Refined Overall Task:**
-${refinedPrompt}
-
-**Current File Being Worked On:** ${filename}
-
-**Worker 1's Last Response (Code + Explanation that you are reviewing):**
-${worker1Response}
-
-**Current Code in ${filename} (from project state, for reference):**
-\`\`\`tsx
-${fileContent}
-\`\`\`
----
-Now, provide your review in the specified JSON format:
-`.trim();
+  You are Worker 2 in a collaborative AI coding system. Your job is to critically review the code written by Worker 1 and return your findings in **strict JSON format**.
+  
+  ---
+  🧠 **Your Responsibilities:**
+  - Analyze the code quality, correctness, and alignment with the refined task.
+  - Report any issues in clear, concise bullet points.
+  - Decide whether the code is acceptable, needs revision, or requires clarification.
+  
+  ---
+  📦 **Return format:**
+  You MUST return **only** the following JSON object, wrapped in a \`\`\`json block:
+  
+  \`\`\`json
+  {
+    "status": "APPROVED" | "REVISION_NEEDED" | "NEEDS_CLARIFICATION",
+    "key_issues": ["Describe each key issue in one sentence."],
+    "next_action_for_w1": "A clear, direct instruction for what Worker 1 should do next."
+  }
+  \`\`\`
+  
+  ✅ **Rules**:
+  - DO NOT include anything before or after the JSON block — no text, explanation, or formatting.
+  - DO NOT add markdown headers, footers, or commentary.
+  - DO NOT invent new status types.
+  - DO NOT truncate your JSON. Ensure all brackets, quotes, and commas are present.
+  - Double-check that it is valid JSON. Imagine a strict JSON parser will validate it.
+  
+  ---
+  🎯 **Context for Your Review**:
+  
+  📝 **Refined Task:**
+  ${refinedPrompt}
+  
+  📄 **File Being Reviewed:** \`${filename}\`
+  
+  💬 **Worker 1’s Explanation and Code:**
+  ${worker1Response}
+  
+  🧾 **Current Content of \`${filename}\`:**
+  \`\`\`tsx
+  ${fileContent}
+  \`\`\`
+  
+  Now return ONLY the JSON block. You are not allowed to say anything else.
+  `.trim();
   // ^ ^ ^ ^ END OF NEW PROMPT ^ ^ ^ ^
 
   let fullText = '';
@@ -65,7 +75,8 @@ Now, provide your review in the specified JSON format:
   const systemMessage: AiChatMessage = { // Explicitly type systemMessage
     role: 'system',
     content:
-      "You are an AI assistant participating in a multi-turn code generation and review process. Pay close attention to the role assigned in the user prompt ('Worker 1' or 'Worker 2') and fulfill ONLY that role's specific task for the current turn. When asked to provide JSON, provide ONLY the JSON object wrapped in triple backticks as requested."
+      "You are an AI assistant participating in a multi-turn code generation and review process. Pay close attention to the role assigned in the user prompt ('Worker 1' or 'Worker 2') and fulfill ONLY that role's specific task for the current turn. When asked to provide JSON,provide ONLY the JSON object wrapped in triple backticks as requested. If your response is cut off mid-JSON, or your JSON is not perfectly valid, the system will reject it. Be careful to include closing brackets, quotes, and required keys. Double-check before finalizing your response. Do not include any partial JSON. If unsure, recheck your output before sending."
+      
   };
 
   // Wrap the callLLMStream in a try...catch if it can throw errors you want to handle within the stage
@@ -88,13 +99,19 @@ Now, provide your review in the specified JSON format:
         data: { content: chunk },
       };
     }
-
+    
     yield {
       type: 'review-complete',
-      data: { fullText, messages }, // Include messages to match StageEventDataMap type
+      data: { fullText, messages },
     };
-
-
+    
+    const parsedReview = parseReviewOutput(fullText);
+    
+    yield {
+      type: 'review_result',
+      data: parsedReview,
+    };
+    
   } catch (error: any) {
     console.error(`[reviewStage] Error during LLM call or streaming: ${error.message}`);
     // Re-throw the error so the main pipeline can catch it and yield a pipeline_error

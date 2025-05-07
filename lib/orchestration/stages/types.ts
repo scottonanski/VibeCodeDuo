@@ -46,6 +46,12 @@ assistant_chunk: { worker: 'w1' | 'w2' | 'refiner'; chunk: string };
 assistant_done: { worker: 'w1' | 'w2' | 'refiner' };
 pipeline_error: { message: string };
 pipeline_finish: { finalState: Pick<CollaborationState, 'projectFiles' | 'requiredPackages'> };
+review_result: {
+  status: string;
+  key_issues: string[];
+  next_action_for_w1: string;
+};
+
 // Add more specific events as needed
 };
 
@@ -102,14 +108,31 @@ export interface ReviewStageParams {
 
 // Events yielded by individual stages (can be more specific)
 export type StageEventDataMap = {
+  // Codegen-specific
   'codegen-chunk': { content: string };
-  'codegen-code-chunk': { content: string }; // If you want to differentiate text vs code
-  'codegen-complete': { content: string; fullText: string; messages: AiChatMessage[]; finalCode?: string };
+  'codegen-code-chunk': { content: string };
+  'codegen-complete': {
+    content: string;
+    fullText: string;
+    messages: AiChatMessage[];
+    finalCode?: string;
+  };
+
+  // Review-specific
   'review-chunk': { content: string };
-  'review-complete': { fullText: string; messages: AiChatMessage[]; }; // fullText will be the JSON
-  // Add other stage-specific events if needed
+  'review-complete': {
+    fullText: string;
+    messages: AiChatMessage[];
+  };
+
+  // ✅ Add global pipeline events here
+  'file_update': { filename: string; content: string };
+  'assistant_chunk': { worker: 'w1' | 'w2' | 'refiner'; chunk: string };
+  'assistant_done': { worker: 'w1' | 'w2' | 'refiner' };
 };
 
 export type StageEvent = {
 [K in keyof StageEventDataMap]: { type: K; data: StageEventDataMap[K] }
+| { type: "review_result"; data: { status: string; key_issues: string[]; next_action_for_w1: string } }
+
 }[keyof StageEventDataMap];

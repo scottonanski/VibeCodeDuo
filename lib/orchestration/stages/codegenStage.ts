@@ -1,22 +1,19 @@
 // lib/orchestration/stages/codegenStage.ts
 
 import { fetchChatCompletion } from '@/lib/services/ai-service';
-import type { AiChatMessage } from './types';
-
-interface CodegenResult {
-  filename: string;
-  content: string;
-  fullText: string;
-  messages: AiChatMessage[];
-}
-
-import type { CodegenStageParams, StageEvent } from './types';
+import type { AiChatMessage, CodegenStageParams, StageEvent } from './types';
 
 export async function* codegenStage(
   params: CodegenStageParams
 ): AsyncGenerator<StageEvent, void> {
-  const { filename, refinedPrompt, conversationHistory, currentCode, workerConfig, projectType } = params;
-  // Use workerConfig.provider, workerConfig.model, workerConfig.apiKey
+  const {
+    filename,
+    refinedPrompt,
+    conversationHistory,
+    currentCode,
+    workerConfig,
+    projectType,
+  } = params;
 
   const systemPrompt = `You are an expert front-end developer.
 Your job is to generate clean, modern, production-quality code.
@@ -53,7 +50,6 @@ Do not explain anything. Just return the file content in a valid code block with
     };
   }
 
-  // Parse out code block from fullText
   const codeMatch = fullText.match(/```(?:tsx|js|ts)?\n([\s\S]*?)```/);
   const codeContent = codeMatch ? codeMatch[1].trim() : '// Failed to extract code';
 

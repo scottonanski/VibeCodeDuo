@@ -4,9 +4,22 @@ import type {
   PipelineEventDataMap,
 } from "@/lib/orchestration/stages/types";
 
+// Message type for the build stream
+interface BuildStreamMessage {
+  sender: string;
+  content: string;
+  isDone?: boolean;
+  parsedReview?: {
+    status: string;
+    key_issues: string[];
+    next_action_for_w1: string;
+  };
+}
+
+
 // State type for the build stream
 interface BuildStreamState {
-  messages: Array<{ sender: string; content: string; isDone?: boolean }>;
+  messages: BuildStreamMessage[];
   projectFiles: Record<string, string>;
   pipelineStage: string | null;
   statusMessage: string | null;
@@ -34,7 +47,8 @@ type Action =
   | { type: "SET_PROMPT"; payload: string }
   | { type: "SET_ERROR"; payload: string }
   | { type: "SET_FINISHED" }
-  | { type: "RESET" };
+  | { type: "RESET" }
+  | { type: "ATTACH_PARSED_REVIEW"; payload: { parsed: BuildStreamMessage["parsedReview"] } };
 
 function buildStreamReducer(state: BuildStreamState, action: Action): BuildStreamState {
   switch (action.type) {
@@ -95,8 +109,28 @@ function buildStreamReducer(state: BuildStreamState, action: Action): BuildStrea
       return { ...state, isFinished: true };
     case "RESET":
       return initialState;
+      case "ATTACH_PARSED_REVIEW": {
+        const lastIdx = [...state.messages]
+          .reverse()
+          .findIndex((msg) => msg.sender === "worker2");
+      
+        if (lastIdx === -1) return state;
+      
+        const trueIdx = state.messages.length - 1 - lastIdx;
+        const newMessages = [...state.messages];
+        newMessages[trueIdx] = {
+          ...newMessages[trueIdx],
+          parsedReview: action.payload.parsed,
+        };
+      
+        console.log("✅ Attached parsedReview to Worker 2 message:", newMessages[trueIdx]);
+      
+        return { ...state, messages: newMessages };
+      }
+      
     default:
       return state;
+
   }
 }
 
@@ -142,7 +176,7 @@ export function useBuildStream(isSendingRef: React.MutableRefObject<boolean>) {
           let parsed: PipelineEvent | null = null;
           try {
             parsed = { type: eventType, data: JSON.parse(eventData) } as PipelineEvent;
-          } catch {}
+          } catch { }
           if (!parsed) continue;
           switch (parsed.type) {
             case "pipeline_start":
@@ -173,6 +207,10 @@ export function useBuildStream(isSendingRef: React.MutableRefObject<boolean>) {
             case "pipeline_finish":
               dispatch({ type: "SET_FINISHED" });
               break;
+              case "review_result":
+                dispatch({ type: "ATTACH_PARSED_REVIEW", payload: { parsed: parsed.data } });
+                break;
+              
           }
         }
       }

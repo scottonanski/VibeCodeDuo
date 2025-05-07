@@ -2,98 +2,135 @@
   <img src="./public/banner.png" alt="VibeCodeDuo Banner" width="100%" />
 </p>
 
-
-# **🚀 VibeCodeDuo - Turn-Based Orchestrator: A Revolution in AI Collaboration 🔥**
+# 🚀 VibeCodeDuo - Turn-Based Orchestrator: A Revolution in AI Collaboration 🔥
 
 Welcome to **VibeCodeDuo's** cutting-edge **Turn-Based Orchestrator** branch! 🎉 This powerful feature **redefines the way AI agents collaborate** to create and refine software. We’re moving beyond mere concurrent AI responses and building a **stateful, turn-based pipeline** where AI agents **build, review, and iteratively refine** software projects.
 
-## **💡 The Vision: Orchestrating Seamless Multi-Agent AI Collaboration 🤖💻**
+## 💡 The Vision: Orchestrating Seamless Multi-Agent AI Collaboration
 
 At the heart of VibeCodeDuo is a **game-changing AI collaboration system** designed to simulate a real-world software development process. Multiple **AI models**—customizable for both OpenAI and local Ollama instances—work in tandem to **refine** and **iterate** on each other’s contributions. This isn’t just a chat; this is **live collaboration** between **AI agents** with distinct roles, pushing code forward, reviewing progress, and refining results.
 
-### **🔑 Key Principles of the System:**
+### 🔑 Key Principles of the System
 
-* **Multi-Agent Collaboration:** 🧠🤖
+* **Multi-Agent Collaboration** 🧠🤖
 
   * Orchestrates a "Refiner" bot to clarify user prompts and two "Worker" bots: Worker 1 for code generation, and Worker 2 for structured code review. These bots work in a **turn-based loop** to ensure optimal code output.
 
-* **Stateful Pipeline:** 🌱🔄
+* **Stateful Pipeline** 🌱🔄
 
   * Managed by the backend orchestrator (`collaborationPipeline.ts`), this system seamlessly handles the entire project lifecycle—tracking files, maintaining conversation history, and adjusting collaboration flow based on feedback from Worker 2 (Review Bot).
 
-* **Structured Communication:** 📡💬
+* **Structured Communication** 📡💬
 
   * Using **Server-Sent Events (SSE)**, this pipeline streams rich `PipelineEvent`s (like file changes and AI output) directly to the frontend for **real-time updates**.
 
-* **IDE-Centric UI:** 🖥️✨
+* **IDE-Centric UI** 🖥️✨
 
-  * The frontend (`BuildInterface.tsx`, `useBuildStream.ts`) mirrors the feel of a real-world IDE, displaying not just a **chat log**, but a **live build process**—showing every update, file change, and agent interaction.
-
----
-
-## **🔥 Current Branch Status & Achievements 🚀**
-
-### **🔧 Backend (`src/lib/orchestration/`, `src/app/api/chat/route.ts`):**
-
-* ✅ **Fully Functional Orchestration Pipeline:**
-
-  * The system successfully manages the **multi-turn interactions** between the Refiner, Worker 1 (Code), Worker 2 (Review), and Worker 1 (Revisions based on feedback).
-  * Tracks state (`CollaborationState`) to ensure smooth transitions across stages (refine → code → review → revise).
-  * Implements **conditional logic** to direct collaboration flow based on Worker 2’s JSON feedback (e.g., `APPROVED`, `REVISION_NEEDED`).
-
-* ✅ **Secure & Scalable API Key Management:**
-
-  * API keys are securely loaded from `.env.local` for each worker, ensuring seamless integrations and robust security.
-
-* ✅ **Structured JSON Feedback:**
-
-  * Worker 2 generates structured feedback in **JSON format**, enabling cleaner parsing and precise revisions.
-
-* ✅ **Context Window Management:**
-
-  * Implemented `getTruncatedHistory` to manage conversation history and prevent token overflow in long collaborations.
-
-* ✅ **SSE Streaming:**
-
-  * The API is properly streaming all relevant events to the frontend, keeping the collaboration live and fluid.
-
-* ✅ **Modular Design:**
-
-  * Clean separation of concerns between the orchestrator pipeline, individual stage handlers, and LLM services ensures **scalability** and **maintainability**.
+  * The frontend mirrors the feel of a real-world IDE, displaying not just a **chat log**, but a **live build process**—showing every update, file change, and agent interaction.
 
 ---
 
-### **🌐 Frontend (`src/hooks/useBuildStream.ts`, `src/components/ui/BuildInterface.tsx`):**
+## 🔥 Current Status & Achievements
 
-* ✅ **`useBuildStream` Hook:**
+### 🔧 Backend (`/lib/orchestration/`, `/api/chat/route.ts`)
 
-  * Connects to the SSE endpoint, manages **real-time state**, and ensures smooth, incremental updates for the frontend.
-  * Tracks `messages`, `projectFiles`, `pipelineStage`, and other key variables to keep the UI in sync with the backend.
+* **✅ Fully Functional Orchestration Pipeline:**
 
-* ✅ **`BuildInterface.tsx` Component:**
+  * Multi-turn loop (Refiner ➔ Worker 1 ➔ Worker 2 ➔ Worker 1 revisions)
+  * Smart branching via `status: APPROVED` or `REVISION_NEEDED`
 
-  * **Displays the entire live process**:
+* **✅ Structured JSON Reviews:**
 
-    * **Live status bar** showing current stage.
-    * **Project files in real-time** within a `<pre><code>` tag display.
-    * **Dynamic chat/log** displaying the interactions between bots (AI textual output).
-  * Features UI controls to **start/stop the pipeline** and manage streaming behavior.
+  * Worker 2 returns clean, actionable JSON reviews parsed by `parseReviewOutput()`
 
----
+* **✅ Live Streaming & State Sync:**
 
-### **🎯 Overall:**
+  * Using SSE, all stage/status/file events stream in real time with stateful memory across turns
 
-* The **multi-agent collaboration system** is **fully operational**—workers are collaborating, refining code, and iterating effectively.
-* Backend logic for **API key management**, **JSON parsing**, **SSE streaming**, and **context handling** is **fully functional**.
-* The frontend provides a rich, **live interface**, capturing the essence of a **real-time development environment** with **project file updates** and **AI-driven interactions**.
+* **✅ Context Management:**
+
+  * `getTruncatedHistory()` keeps context windows efficient to avoid model token overflows
 
 ---
 
-## **⚠️ Known Issues & Next Steps 🔧**
+### 🌐 Frontend (`/hooks/useBuildStream.ts`, `/components/ui/BuildInterface.tsx`)
 
-### **UI Enhancements (Next Priority):**
+* **✅ Real-Time Streaming UI:**
 
-* **Syntax Highlighting:** 🌈🖋️
+  * Displays messages from each bot, refined prompts, and code file updates
+
+* **✅ Syntax Highlighting (NEW):**
+
+  * Code is rendered with `react-syntax-highlighter` for improved readability and developer experience
+
+* **✅ Stream Lifecycle Controls:**
+
+  * Users can start/stop the stream and view live turn progress
+
+---
+
+## ✨ Built With
+
+* 💚 Next.js 15
+* 🖊️ Tailwind CSS / Radix UI / Lucide Icons
+* 🚀 OpenAI & Ollama model support
+* 🔄 Server-Sent Events (SSE)
+* 📝 TypeScript
+
+---
+
+## ⚠️ Known Issues & Roadmap
+
+### 🎈 Near-Term (UI/UX Polish)
+
+* Syntax highlighting (done!)
+* Improve AI message readability in chat
+* Highlight `pipeline_error` events clearly
+* Button logic refinement (start/stop/reset controls)
+
+### 🚀 Mid-Term
+
+* Multiple file support
+* File tree & tabbed editing
+* AI-driven file scaffolding
+
+### 🔀 Long-Term
+
+* AI memory snapshots & summarization
+* Per-role prompt control UI
+* Auto-resume from failure or user input
+
+---
+
+## 🌟 Demo Instructions
+
+1. Create a `.env.local` file with `OPENAI_API_KEY_WORKER1` and `OPENAI_API_KEY_WORKER2`
+2. Run `pnpm install`
+3. Start with `pnpm dev`
+4. Visit [localhost:3000](http://localhost:3000) and input a task prompt
+5. Watch the bots collaborate and build your project ✨
+
+---
+
+## 🌍 Why It Matters
+
+**VibeCodeDuo** introduces a paradigm shift:
+
+* ✅ **Iterative AI Collaboration**, not just prompts and completions
+* ✅ **Live coding by two AI roles** (Builder + Reviewer)
+* ✅ **Structured, observable development cycles**
+
+Use cases include:
+
+* 💡 Prototyping apps with minimal human input
+* 📈 Demoing LLM-based developer tooling
+* 💮 Selling AI-accelerated workflows to clients or teams
+* 📑 Research in agent-based cooperation models
+
+This isn’t just software—it’s a demonstration of how multi-agent AI can **build software together**.
+
+---
+ 🌈🖋️
 
   * Add **syntax highlighting** for the code displayed in `BuildInterface.tsx` to improve readability (consider using `react-syntax-highlighter`).
 

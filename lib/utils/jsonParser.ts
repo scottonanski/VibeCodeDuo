@@ -1,20 +1,26 @@
 // Utility function to extract a JSON block from a response string
 export function extractJsonString(responseText: string): string | null {
-    // Try to capture JSON wrapped in triple backticks
-    const match = responseText.match(/```json\n([\s\S]*?)\n```/);
-    if (match && match[1]) {
-        return match[1]; // Return the JSON block within the backticks
-    }
-
-    // Fallback: Try to find the first { and last } to extract the JSON block
-    const firstBrace = responseText.indexOf('{');
-    const lastBrace = responseText.lastIndexOf('}');
+    // Attempt strict match with triple backticks
+    const strictMatch = responseText.match(/```json\s*\n([\s\S]*?)\n```/);
+    if (strictMatch && strictMatch[1]) return strictMatch[1].trim();
+  
+    // Fallback: try to recover partial JSON with brace matching
+    const firstBrace = responseText.indexOf("{");
+    const lastBrace = responseText.lastIndexOf("}");
     if (firstBrace !== -1 && lastBrace > firstBrace) {
-        return responseText.substring(firstBrace, lastBrace + 1); // Return the JSON substring
+      const possibleJson = responseText.substring(firstBrace, lastBrace + 1);
+      try {
+        // Try parsing early to validate it's well-formed
+        JSON.parse(possibleJson);
+        return possibleJson;
+      } catch (err) {
+        console.warn("extractJsonString: Found braces but JSON invalid:", err);
+      }
     }
-
-    return null; // Return null if no JSON is found
-}
+  
+    return null;
+  }
+  
 
 // Function to parse the review output into actionable data
 export const parseReviewOutput = (response: string): { status: string; key_issues: string[]; next_action_for_w1: string } => {
@@ -33,9 +39,21 @@ export const parseReviewOutput = (response: string): { status: string; key_issue
             throw new Error("Invalid response format.");
         }
 
-        return { status, key_issues, next_action_for_w1 };
+        function normalizeStatus(raw: string): "APPROVED" | "REVISION_NEEDED" | "ERROR" {
+            const s = raw.trim().toUpperCase();
+            if (s === "APPROVED") return "APPROVED";
+            if (s === "REVISION_NEEDED" || s === "REVISON_NEEDED") return "REVISION_NEEDED";
+            return "ERROR";
+          }
+          
+
+          return { status: normalizeStatus(status), key_issues, next_action_for_w1 };
+
     } catch (error) {
         console.error("Failed to parse Worker 2's review:", error);
+        console.error("RAW FULL RESPONSE:\n", response); // <-- helpful debug
+console.error("EXTRACTED JSON:\n", jsonString);  // <-- can show partials
+
         return { status: "UNKNOWN", key_issues: [], next_action_for_w1: "ERROR_PARSING_JSON" };
     }
 };
