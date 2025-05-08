@@ -13,7 +13,7 @@ import { AlertTriangleIcon } from 'lucide-react';
 import { useBuildStream } from '@/hooks/useBuildStream';
 
 interface BuildInterfaceProps {
-  settings: any; // Replace with your actual settings type
+  settings: any;
 }
 
 export function BuildInterface({ settings }: BuildInterfaceProps) {
@@ -21,7 +21,6 @@ export function BuildInterface({ settings }: BuildInterfaceProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const isSendingRef = useRef(false);
 
-  // Use the new build stream hook
   const {
     messages,
     projectFiles,
@@ -30,23 +29,17 @@ export function BuildInterface({ settings }: BuildInterfaceProps) {
     refinedPrompt,
     error,
     isFinished,
+    requiredInstalls, // ✅ FIXED: pull from hook
     startStream,
     stopStream,
   } = useBuildStream(isSendingRef);
 
-  // Send user input to the pipeline
   const handleSendMessage = async () => {
     if (isSendingRef.current || !input.trim()) return;
     isSendingRef.current = true;
-    // For now, just send the user input as the initial prompt
-    // You may want to collect more settings for pipelineParams
+
     const payload = {
-      messages: [
-        {
-          role: "user",
-          content: input.trim(),
-        },
-      ],
+      messages: [{ role: "user", content: input.trim() }],
       worker1: {
         provider: settings.provider,
         model: settings.worker1Model,
@@ -60,16 +53,7 @@ export function BuildInterface({ settings }: BuildInterfaceProps) {
     setInput('');
   };
 
-  // Helper for message display
   const getSenderMeta = (sender: string, error?: string) => {
-    const styles = {
-      avatarInitial: '?',
-      avatarColor: 'bg-gray-400 text-white',
-      bubbleClass: 'bg-white border border-gray-200 dark:bg-slate-800 dark:border-slate-700', // Default AI bubble
-      alignment: 'justify-start',
-      tooltip: 'Unknown',
-    };
-
     switch (sender) {
       case "user":
         return {
@@ -126,70 +110,51 @@ export function BuildInterface({ settings }: BuildInterfaceProps) {
     }
   };
 
-
   return (
-    <div
-      className="flex flex-col h-full dark:bg-slate-900"
-      role="main"
-      data-component="BuildInterface"
-    >
-      {/* Status Area */}
-      <div
-        className="p-2 bg-slate-100 dark:bg-slate-800 border-b text-xs flex items-center gap-4"
-        data-component="StatusArea"
-      >
+    <div className="flex flex-col h-full dark:bg-slate-900">
+      {/* Status Bar */}
+      <div className="p-2 bg-slate-100 dark:bg-slate-800 border-b text-xs flex items-center gap-4">
         <span>Stage: <b>{pipelineStage || '—'}</b></span>
         <span>Status: {statusMessage || '—'}</span>
         {isFinished && <span className="text-green-600 font-semibold">Pipeline finished</span>}
-        {error && <span className="text-red-600 flex items-center gap-1"><AlertTriangleIcon className="w-4 h-4" />{error}</span>}
+        {error && (
+          <span className="text-red-600 flex items-center gap-1">
+            <AlertTriangleIcon className="w-4 h-4" />{error}
+          </span>
+        )}
       </div>
 
       {/* Refined Prompt */}
       {refinedPrompt && (
-        <div
-          className="p-2 bg-yellow-50 dark:bg-yellow-900/20 border-b text-sm"
-          role="region"
-          aria-label="Refined Prompt"
-          data-component="RefinedPrompt"
-        >
+        <div className="p-2 bg-yellow-50 dark:bg-yellow-900/20 border-b text-sm">
           <b>Refined Prompt:</b> {refinedPrompt}
         </div>
       )}
 
-      {/* Project Files Area (scrollable, max height) */}
-      <div
-        className="flex flex-col gap-2 p-2 border-b bg-slate-50 dark:bg-slate-900/40 max-h-[40vh] overflow-y-auto"
-        role="region"
-        aria-label="Project Files"
-        data-component="ProjectFiles"
-      >
-
-        <b data-component="ProjectFilesLabel">Project Files:</b>
+      {/* Project Files Display */}
+      <div className="flex flex-col gap-2 p-2 border-b bg-slate-50 dark:bg-slate-900/40 max-h-[40vh] overflow-y-auto">
+        <b>Project Files:</b>
         {Object.entries(projectFiles).map(([filename, content]) => {
-          const getLanguageFromFilename = (filename: string) => {
-            if (filename.endsWith('.tsx') || filename.endsWith('.ts')) return 'tsx';
-            if (filename.endsWith('.js')) return 'javascript';
-            if (filename.endsWith('.jsx')) return 'jsx';
-            if (filename.endsWith('.html')) return 'html';
-            if (filename.endsWith('.css')) return 'css';
+          const getLang = (name: string) => {
+            if (name.endsWith('.tsx') || name.endsWith('.ts')) return 'tsx';
+            if (name.endsWith('.js')) return 'javascript';
+            if (name.endsWith('.jsx')) return 'jsx';
+            if (name.endsWith('.html')) return 'html';
+            if (name.endsWith('.css')) return 'css';
             return 'text';
           };
 
           return (
-            <div
-              key={filename}
-              className="mb-4"
-              data-component="ProjectFileItem"
-            >
-              <div className="text-xs font-mono text-blue-700 dark:text-blue-300" data-component="ProjectFileName">{filename}</div>
+            <div key={filename} className="mb-4">
+              <div className="text-xs font-mono text-blue-700 dark:text-blue-300">{filename}</div>
               <SyntaxHighlighter
-                language={getLanguageFromFilename(filename)}
+                language={getLang(filename)}
                 style={atomDark}
                 customStyle={{
                   borderRadius: '0.5rem',
                   fontSize: '0.75rem',
                   padding: '1rem',
-                  background: 'transparent'
+                  background: 'transparent',
                 }}
                 wrapLongLines
                 showLineNumbers
@@ -200,49 +165,44 @@ export function BuildInterface({ settings }: BuildInterfaceProps) {
           );
         })}
       </div>
-      {/* Project Files Area END */}
 
-      {/* Chat/Log Area (always visible) */}
-      <ScrollArea
-        className="flex-1 p-4"
-        ref={scrollAreaRef}
-        role="region"
-        aria-label="Chat Log"
-        data-component="ChatLog"
-      >
+      {/* 📦 Install Commands Section */}
+      {requiredInstalls.length > 0 && (
+        <div className="p-4 border-b bg-yellow-50 dark:bg-yellow-900/20">
+          <b className="text-sm font-semibold text-yellow-900 dark:text-yellow-300 block mb-2">
+            📦 Required Install Commands:
+          </b>
+          <ul className="space-y-1">
+            {requiredInstalls.map((cmd: string, idx: number) => (
+              <li
+                key={idx}
+                className="font-mono text-sm bg-yellow-100 dark:bg-yellow-900/50 p-2 rounded-md border border-yellow-200 dark:border-yellow-700 text-yellow-800 dark:text-yellow-200"
+              >
+                {cmd}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Chat Area */}
+      <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
         <div className="space-y-4 max-w-4xl mx-auto">
           {messages.map((msg, i) => {
             const meta = getSenderMeta(msg.sender);
-
             return (
-              <div
-                key={i}
-                className={cn('flex items-start gap-3', meta.alignment)}
-                data-component="ChatBubble"
-              >
+              <div key={i} className={cn('flex items-start gap-3', meta.alignment)}>
                 {msg.sender !== 'user' && (
-                  <Avatar className="w-8 h-8 border shadow-sm" data-component="ChatAvatar">
-                    <AvatarFallback
-                      className={cn('text-xs font-semibold', meta.avatarColor)}
-                      title={meta.tooltip}
-                      data-component="ChatAvatarFallback"
-                    >
+                  <Avatar className="w-8 h-8 border shadow-sm">
+                    <AvatarFallback className={cn('text-xs font-semibold', meta.avatarColor)} title={meta.tooltip}>
                       {meta.avatarInitial}
                     </AvatarFallback>
                   </Avatar>
                 )}
-
-                {/* Bubble */}
                 <div className={cn('rounded-lg p-3 text-sm max-w-[75%] shadow-sm', meta.bubbleClass)}>
                   <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
                     <span>{meta.icon}</span> {meta.label}
                   </p>
-
-                  {msg.sender === 'worker2' && (
-                    <pre className="text-xs text-gray-400">
-                      debug: {JSON.stringify(msg.parsedReview)}
-                    </pre>
-                  )}
 
                   {msg.parsedReview ? (
                     <div className="space-y-1">
@@ -261,7 +221,6 @@ export function BuildInterface({ settings }: BuildInterfaceProps) {
                     </div>
                   ) : (
                     <div className="prose prose-sm dark:prose-invert">
-
                       <ReactMarkdown
                         components={{
                           code({ inline, className, children, ...props }: any) {
@@ -285,22 +244,13 @@ export function BuildInterface({ settings }: BuildInterfaceProps) {
                       >
                         {msg.sender === 'worker2' ? '' : stripFencedCodeBlocks(msg.content)}
                       </ReactMarkdown>
-
                     </div>
                   )}
-
-                  {msg.isDone && (
-                    <span className="text-green-600 text-xs ml-2">✔️</span>
-                  )}
+                  {msg.isDone && <span className="text-green-600 text-xs ml-2">✔️</span>}
                 </div>
-
                 {msg.sender === 'user' && (
-                  <Avatar className="w-8 h-8 border shadow-sm" data-component="ChatAvatar">
-                    <AvatarFallback
-                      className={cn('text-xs font-semibold', meta.avatarColor)}
-                      title={meta.tooltip}
-                      data-component="ChatAvatarFallback"
-                    >
+                  <Avatar className="w-8 h-8 border shadow-sm">
+                    <AvatarFallback className={cn('text-xs font-semibold', meta.avatarColor)} title={meta.tooltip}>
                       {meta.avatarInitial}
                     </AvatarFallback>
                   </Avatar>
@@ -311,13 +261,10 @@ export function BuildInterface({ settings }: BuildInterfaceProps) {
         </div>
       </ScrollArea>
 
-      {/* Input Area */}
+      {/* Input */}
       <form
         className="flex items-center gap-2 p-2 border-t bg-white dark:bg-slate-900/60"
         onSubmit={e => { e.preventDefault(); handleSendMessage(); }}
-        role="form"
-        aria-label="Prompt Input"
-        data-component="PromptInput"
       >
         <Input
           value={input}
@@ -325,13 +272,12 @@ export function BuildInterface({ settings }: BuildInterfaceProps) {
           placeholder="Type your prompt..."
           className="flex-1"
           disabled={isSendingRef.current}
-          data-component="PromptInputField"
         />
-        <Button type="submit" disabled={isSendingRef.current || !input.trim()} data-component="SendButton">
+        <Button type="submit" disabled={isSendingRef.current || !input.trim()}>
           Send
         </Button>
         {isSendingRef.current && (
-          <Button type="button" variant="outline" onClick={stopStream} className="ml-2 text-red-600 border-red-300" data-component="StopButton">
+          <Button type="button" variant="outline" onClick={stopStream} className="ml-2 text-red-600 border-red-300">
             Stop
           </Button>
         )}

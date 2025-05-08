@@ -31,6 +31,7 @@ interface BuildStreamState {
   refinedPrompt: string | null;
   error: string | null;
   isFinished: boolean;
+  requiredInstalls: string[];
 }
 
 const initialState: BuildStreamState = {
@@ -41,6 +42,7 @@ const initialState: BuildStreamState = {
   refinedPrompt: null,
   error: null,
   isFinished: false,
+  requiredInstalls: [], 
 };
 
 type Action =
@@ -53,7 +55,10 @@ type Action =
   | { type: "SET_ERROR"; payload: string }
   | { type: "SET_FINISHED" }
   | { type: "RESET" }
-  | { type: "ATTACH_PARSED_REVIEW"; payload: { parsed: BuildStreamMessage["parsedReview"] } };
+  | { type: "ATTACH_PARSED_REVIEW"; payload: { parsed: BuildStreamMessage["parsedReview"] } }
+  | { type: "ADD_INSTALL_COMMAND"; payload: { command: string } }
+  | { type: "SET_INSTALL_SUMMARY"; payload: { commands: string[] } };
+
 
 function buildStreamReducer(state: BuildStreamState, action: Action): BuildStreamState {
   switch (action.type) {
@@ -132,6 +137,19 @@ function buildStreamReducer(state: BuildStreamState, action: Action): BuildStrea
       
         return { ...state, messages: newMessages };
       }
+
+      case "ADD_INSTALL_COMMAND":
+        return {
+          ...state,
+          requiredInstalls: [...state.requiredInstalls, action.payload.command],
+        };
+  
+      case "SET_INSTALL_SUMMARY":
+        return {
+          ...state,
+          requiredInstalls: action.payload.commands,
+        };
+  
       
     default:
       return state;
@@ -184,9 +202,20 @@ export function useBuildStream(isSendingRef: React.MutableRefObject<boolean>) {
           } catch { }
           if (!parsed) continue;
           switch (parsed.type) {
-            case "pipeline_start":
-              // Optionally handle
+            case "install_command_found":
+              dispatch({
+                type: "ADD_INSTALL_COMMAND",
+                payload: { command: parsed.data.command },
+              });
               break;
+
+            case "install_summary":
+              dispatch({
+                type: "SET_INSTALL_SUMMARY",
+                payload: { commands: parsed.data.commands },
+              });
+              break;
+
             case "stage_change":
               dispatch({ type: "SET_STAGE", payload: parsed.data.newStage });
               if (parsed.data.message) dispatch({ type: "SET_STATUS", payload: parsed.data.message });
