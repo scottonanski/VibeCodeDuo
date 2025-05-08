@@ -1,3 +1,5 @@
+// app/page.tsx
+
 "use client"
 
 import { useState } from "react"
@@ -12,6 +14,9 @@ import Header from "@/components/ui/header"
 import { SettingsPanel, Settings } from "@/components/ui/settings-panel"
 
 export default function Home() {
+
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
+
   const [activeTab, setActiveTab] = useState("editor");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>({
@@ -32,49 +37,58 @@ export default function Home() {
   };
 
   return (
-    <FileSystemProvider>
+    <FileSystemProvider data-component="FileSystemProvider">
       <SettingsPanel
         open={settingsOpen}
         initialSettings={settings}
         onConfirm={handleConfirmSettings}
         onCancel={handleCancelSettings}
+        data-component="SettingsPanel"
       />
-      <div className="h-screen w-full flex flex-col overflow-hidden">
-        <Header onSettingsClick={() => setSettingsOpen(true)} />
-        <main className="flex-1 overflow-hidden">
-          <ResizablePanelGroup direction="horizontal">
-            {/* Left Panel: Code Editor & Preview */}
-            <ResizablePanel defaultSize={40} minSize={30}>
-              <div className="h-full flex flex-col">
-                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                  <div className="border-b px-4">
-                    <TabsList className="h-10">
-                      <TabsTrigger value="editor">Code Editor</TabsTrigger>
-                      <TabsTrigger value="preview">Preview</TabsTrigger>
-                    </TabsList>
-                  </div>
-                  <TabsContent value="editor" className="flex-1 p-0 h-[calc(100vh-40px)]">
-                    <CodeEditor />
-                  </TabsContent>
-                  <TabsContent value="preview" className="flex-1 p-0 h-[calc(100vh-40px)]">
-                    <Preview />
-                  </TabsContent>
-                </Tabs>
-              </div>
-            </ResizablePanel>
+      <div className="h-screen w-full flex flex-col overflow-hidden" role="document" aria-label="App Container" data-component="AppContainer">
 
-            <ResizableHandle withHandle />
+        {/* Header */}
+        <Header onSettingsClick={() => setSettingsOpen(true)} data-component="Header" />
 
-            {/* Middle Panel: Chat Interface */}
-            <ResizablePanel defaultSize={40} minSize={30}>
+        {/* Main Content */}
+        <main className="flex-1 overflow-hidden" role="main" aria-label="Main content" data-component="MainContent">
+          <ResizablePanelGroup direction="horizontal" data-component="ResizablePanelGroup">
+            {/* Left Panel: Chat/Build Interface */}
+            <ResizablePanel defaultSize={50} minSize={20} data-component="ChatPanel">
               <BuildInterface settings={settings} />
             </ResizablePanel>
-
             <ResizableHandle withHandle />
+            {/* Right Panel: Workspace (FileTree + Editor/Preview) */}
+            <ResizablePanel defaultSize={50} minSize={20} data-component="WorkspacePanel">
+              <ResizablePanelGroup direction="horizontal" data-component="WorkspaceInnerPanelGroup">
+                {/* FileTree (left) */}
+                <ResizablePanel defaultSize={25} minSize={10} data-component="FileTreePanel">
+                  <div className="h-full flex flex-col">
+                    <FileTree selectedPath={activeFilePath} onFileSelect={setActiveFilePath} data-component="FileTree" />
+                  </div>
+                </ResizablePanel>
+                <ResizableHandle withHandle />
+                {/* Editor/Preview (right) */}
+                <ResizablePanel defaultSize={75} minSize={20} data-component="EditorPanel">
+                  <div className="h-full flex flex-col">
+                    <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full h-full" data-component="EditorTabs" role="tablist" aria-label="Editor Tabs">
+                      <div className="border-b px-4">
+                        <TabsList className="h-10">
+                          <TabsTrigger value="editor">Code Editor</TabsTrigger>
+                          <TabsTrigger value="preview">Preview</TabsTrigger>
+                        </TabsList>
+                      </div>
+                      <TabsContent value="editor" className="flex-1 p-0 h-[calc(100vh-40px)]">
+                      <CodeEditor filePath={activeFilePath} />
 
-            {/* Right Panel: File Tree */}
-            <ResizablePanel defaultSize={20} minSize={15}>
-              <FileTree />
+                      </TabsContent>
+                      <TabsContent value="preview" className="flex-1 p-0 h-[calc(100vh-40px)]">
+                        <Preview filePath={activeFilePath} />
+                      </TabsContent>
+                    </Tabs>
+                  </div>
+                </ResizablePanel>
+              </ResizablePanelGroup>
             </ResizablePanel>
           </ResizablePanelGroup>
         </main>

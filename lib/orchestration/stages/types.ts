@@ -7,57 +7,72 @@ export type AiChatMessage = {
 };
 
 export type Stage =
-| 'initial'
-| 'refining_prompt'
-| 'debating_plan'
-| 'scaffolding'
-| 'installing_deps'
-| 'coding_turn'
-| 'reviewing_turn'
-| 'processing_turn'
-| 'error'
-| 'done';
+  | 'initial'
+  | 'refining_prompt'
+  | 'debating_plan'
+  | 'scaffolding'
+  | 'installing_deps'
+  | 'coding_turn'
+  | 'reviewing_turn'
+  | 'processing_turn'
+  | 'error'
+  | 'done';
 
-export interface CollaborationState {
-stage: Stage;
-initialPrompt: string;
-refinedPrompt: string; // No longer null, initialized as empty string
-currentTurn: number;
-maxTurns: number;
-projectFiles: Record<string, string>;
-requiredPackages: string[];
-conversationHistory: AiChatMessage[];
-currentWorker: 'w1' | 'w2' | null;
-lastError: string | null;
-projectType?: string; // Added from PipelineParams
-filename?: string; // Added from PipelineParams, current target file
-}
-
+  export interface CollaborationState {
+    // Existing fields
+    stage: Stage;
+    initialPrompt: string;
+    refinedPrompt: string;
+    currentTurn: number;
+    maxTurns: number;
+    projectFiles: Record<string, string>;
+    requiredPackages: string[];
+    conversationHistory: AiChatMessage[];
+    currentWorker: 'w1' | 'w2' | null;
+    lastError: string | null;
+    projectType?: string;
+    filename?: string;
+  
+    // 🧠 NEW FIELDS FOR ADVANCED COLLABORATION FLOW
+    currentPlan?: {
+      files: string[];
+      goals: string;
+      dependencies: string[];
+    };
+  
+    revisionCountByFile: Record<string, number>;
+  
+    approvedFiles: string[];
+    pendingInstalls: string[];
+    MAX_REVISIONS_PER_FILE?: number;
+    needsReplan?: boolean;
+  }
+  
 export type PipelineEventDataMap = {
-pipeline_start: { initialState: Pick<CollaborationState, 'initialPrompt' | 'maxTurns'> };
-stage_change: { newStage: Stage; message?: string };
-prompt_refined: { refinedPrompt: string };
-package_proposed: { packageName: string }; // For future use
-file_proposed: { filename: string };      // For future use with scaffoldStage
-file_create: { filename: string; content: string }; // More specific than file_update initially
-file_update: { filename: string; content: string };
-status_update: { message: string; worker?: 'w1' | 'w2' | 'refiner' | 'system' };
-assistant_chunk: { worker: 'w1' | 'w2' | 'refiner'; chunk: string };
-assistant_done: { worker: 'w1' | 'w2' | 'refiner' };
-pipeline_error: { message: string };
-pipeline_finish: { finalState: Pick<CollaborationState, 'projectFiles' | 'requiredPackages'> };
-review_result: {
-  status: string;
-  key_issues: string[];
-  next_action_for_w1: string;
-};
+  pipeline_start: { initialState: Pick<CollaborationState, 'initialPrompt' | 'maxTurns'> };
+  stage_change: { newStage: Stage; message?: string };
+  prompt_refined: { refinedPrompt: string };
+  package_proposed: { packageName: string }; // For future use
+  file_proposed: { filename: string };      // For future use with scaffoldStage
+  file_create: { filename: string; content: string }; // More specific than file_update initially
+  file_update: { filename: string; content: string };
+  status_update: { message: string; worker?: 'w1' | 'w2' | 'refiner' | 'system' };
+  assistant_chunk: { worker: 'w1' | 'w2' | 'refiner'; chunk: string };
+  assistant_done: { worker: 'w1' | 'w2' | 'refiner' };
+  pipeline_error: { message: string };
+  pipeline_finish: { finalState: Pick<CollaborationState, 'projectFiles' | 'requiredPackages'> };
+  review_result: {
+    status: string;
+    key_issues: string[];
+    next_action_for_w1: string;
+  };
 
-// Add more specific events as needed
+  // Add more specific events as needed
 };
 
 // Discriminated union for PipelineEvent
 export type PipelineEvent = {
-[K in keyof PipelineEventDataMap]: { type: K; data: PipelineEventDataMap[K] }
+  [K in keyof PipelineEventDataMap]: { type: K; data: PipelineEventDataMap[K] }
 }[keyof PipelineEventDataMap];
 
 
@@ -87,12 +102,12 @@ export interface RefineStageParams {
 }
 
 export interface CodegenStageParams {
-    filename: string;
-    refinedPrompt: string;
-    conversationHistory: AiChatMessage[];
-    currentCode: string;
-    workerConfig: WorkerConfig;
-    projectType?: string;
+  filename: string;
+  refinedPrompt: string;
+  conversationHistory: AiChatMessage[];
+  currentCode: string;
+  workerConfig: WorkerConfig;
+  projectType?: string;
 }
 
 
@@ -132,7 +147,7 @@ export type StageEventDataMap = {
 };
 
 export type StageEvent = {
-[K in keyof StageEventDataMap]: { type: K; data: StageEventDataMap[K] }
-| { type: "review_result"; data: { status: string; key_issues: string[]; next_action_for_w1: string } }
+  [K in keyof StageEventDataMap]: { type: K; data: StageEventDataMap[K] }
+  | { type: "review_result"; data: { status: string; key_issues: string[]; next_action_for_w1: string } }
 
 }[keyof StageEventDataMap];

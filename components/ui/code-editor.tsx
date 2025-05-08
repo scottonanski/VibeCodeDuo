@@ -1,47 +1,64 @@
 "use client"
 
-import type React from "react"
+import Editor from "@monaco-editor/react"
+import { useFileStore } from "@/stores/fileStore"
 
-import { useEffect, useState } from "react"
-import { useFileSystem } from "@/context/file-system-context"
+interface CodeEditorProps {
+  filePath: string | null
+}
 
-export default function CodeEditor() {
-  const { currentFile, fileContents, updateFileContent } = useFileSystem()
-  const [code, setCode] = useState("")
+export default function CodeEditor({ filePath }: CodeEditorProps) {
+  const files = useFileStore((state) => state.files)
+  const updateFileContent = useFileStore((state) => state.updateFileContent)
 
-  useEffect(() => {
-    if (currentFile) {
-      setCode(fileContents[currentFile] || "")
-    } else {
-      setCode("")
-    }
-  }, [currentFile, fileContents])
+  const code = filePath && files[filePath]?.type === "file" ? files[filePath]?.content || "" : null
 
-  const handleCodeChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newCode = e.target.value
-    setCode(newCode)
-    if (currentFile) {
-      updateFileContent(currentFile, newCode)
+  const handleChange = (value: string | undefined) => {
+    if (filePath && value !== undefined) {
+      updateFileContent(filePath, value)
     }
   }
 
-  return (
-    <div className="h-full flex flex-col">
-      <div className="border-b p-2 text-sm text-gray-500">{currentFile || "No file selected"}</div>
-      <div className="flex-1 overflow-hidden">
-        {currentFile ? (
-          <textarea
-            value={code}
-            onChange={handleCodeChange}
-            className="w-full h-full p-4 font-mono text-sm resize-none focus:outline-none"
-            placeholder="Write your code here..."
-          />
-        ) : (
-          <div className="h-full flex items-center justify-center text-gray-400">
-            Select a file from the file tree to start editing
-          </div>
-        )}
+  const getLanguageFromExtension = (filename: string): string => {
+    if (filename.endsWith(".ts")) return "typescript"
+    if (filename.endsWith(".tsx")) return "typescript"
+    if (filename.endsWith(".js")) return "javascript"
+    if (filename.endsWith(".jsx")) return "javascript"
+    if (filename.endsWith(".html")) return "html"
+    if (filename.endsWith(".css")) return "css"
+    if (filename.endsWith(".json")) return "json"
+    return "plaintext"
+  }
+
+  if (!filePath || code === null) {
+    return (
+      <div className="h-full flex items-center justify-center text-muted-foreground">
+        Select a file to view/edit
       </div>
+    )
+  }
+
+  return (
+    <div className="h-full w-full">
+    <Editor
+  height="100%"
+  defaultLanguage={getLanguageFromExtension(filePath)}
+  value={code}
+  onChange={handleChange}
+  theme="vs-dark"
+  options={{
+    fontSize: 14,
+    minimap: { enabled: false },
+    wordWrap: "on",
+    automaticLayout: true,
+    scrollBeyondLastLine: false, 
+    padding: {
+      top: 16,
+      bottom: 16,
+    },
+  }}
+/>
+
     </div>
   )
 }

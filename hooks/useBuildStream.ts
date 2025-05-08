@@ -1,8 +1,13 @@
+// hooks/useBuildStream.ts
+
 import { useEffect, useReducer, useRef, useCallback } from "react";
 import type {
   PipelineEvent,
   PipelineEventDataMap,
 } from "@/lib/orchestration/stages/types";
+
+import { useFileStore } from '@/stores/fileStore';
+
 
 // Message type for the build stream
 interface BuildStreamMessage {
@@ -192,9 +197,15 @@ export function useBuildStream(isSendingRef: React.MutableRefObject<boolean>) {
             case "prompt_refined":
               dispatch({ type: "SET_PROMPT", payload: parsed.data.refinedPrompt });
               break;
-            case "file_update":
-              dispatch({ type: "UPDATE_FILE", payload: { filename: parsed.data.filename, content: parsed.data.content } });
-              break;
+              case "file_create":
+                useFileStore.getState().createFileOrFolder(parsed.data.filename, "file", parsed.data.content);
+                break;
+              
+              case "file_update":
+                useFileStore.getState().updateFileContent(parsed.data.filename, parsed.data.content);
+                dispatch({ type: "UPDATE_FILE", payload: parsed.data }); // optional but keeps old reducer state in sync
+                break;
+              
             case "assistant_chunk":
               dispatch({ type: "APPEND_ASSISTANT_CHUNK", payload: { worker: parsed.data.worker, chunk: parsed.data.chunk } });
               break;
