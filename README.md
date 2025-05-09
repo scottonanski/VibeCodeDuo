@@ -96,14 +96,18 @@ sequenceDiagram
             Pipeline->>Frontend: yield PipelineEvent (install_command_found / install_summary)
             Pipeline->>Pipeline: Update requiredPackages
             Pipeline->>Frontend: yield PipelineEvent (stage_change: done)
-            break Loop
+            Note over Pipeline: Approval received. Exiting coding loop.
+            break
         else Review: REVISION_NEEDED
             Pipeline->>Pipeline: Switch worker to W1, increment turn
             Pipeline->>Frontend: yield PipelineEvent (status_update: revision needed)
+            Note over Pipeline: Revisions needed. Continuing loop.
         end
     end
     
     Pipeline->>Frontend: yield PipelineEvent (pipeline_finish)
+
+
 ```
 
 ---
