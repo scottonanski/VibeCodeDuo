@@ -104,7 +104,9 @@ sequenceDiagram
     end
     
     Pipeline->>Frontend: yield PipelineEvent (pipeline_finish)
-    ```
+```
+
+---
 
 ---
 
