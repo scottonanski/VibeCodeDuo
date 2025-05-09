@@ -10,6 +10,103 @@ Welcome to **VibeCodeDuo**, a cutting-edge platform that pioneers a **Turn-Based
 
 VibeCodeDuo is engineered to simulate and augment a sophisticated software development lifecycle using multiple AI agents. Inspired by the "vibe coding" paradigm—where development is driven by natural language and iterative AI collaboration—we add layers of **specialization, review, and observable process** to create robust and high-quality software. Our customizable AI models (OpenAI & Ollama) work in distinct roles, pushing projects from ideation to tangible code.
 
+---
+
+## 🔍 How It Works
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Frontend (BuildInterface)
+    participant API_Route (/api/chat)
+    participant Pipeline (collaborationPipeline.ts)
+    participant Refiner_AI
+    participant Debater_A_AI
+    participant Debater_B_AI
+    participant Summarizer_AI
+    participant Scaffolder_AI
+    participant Coder_AI (W1)
+    participant Reviewer_AI (W2)
+    participant Installer_AI
+
+    User->>Frontend: Enters prompt & selects settings
+    Frontend->>API_Route: POST /api/chat with (prompt, worker1/2_cfgs)
+    API_Route->>Pipeline: Initiates collaborationPipeline(PipelineParams)
+    Pipeline->>Frontend: yield PipelineEvent (pipeline_start)
+    
+    Pipeline->>Refiner_AI: refineStage(initialPrompt)
+    Refiner_AI-->>Pipeline: refinedPrompt & messages
+    Pipeline->>Frontend: yield PipelineEvent (prompt_refined, assistant_message_complete for refiner)
+    Pipeline->>Pipeline: Update conversationHistory
+    
+    Pipeline->>Frontend: yield PipelineEvent (stage_change: debating_plan)
+    loop Debate Turns (e.g., 2 rounds)
+        Pipeline->>Debater_A_AI: debateStage turn (refinedPrompt, history)
+        Debater_A_AI-->>Pipeline: Stream chunks (for debate_agent_chunk)
+        Pipeline->>Frontend: yield PipelineEvent (debate_agent_chunk for DebaterA)
+        Debater_A_AI-->>Pipeline: Full message (for debate_agent_message_complete)
+        Pipeline->>Frontend: yield PipelineEvent (debate_agent_message_complete for DebaterA)
+        Pipeline->>Pipeline: Update conversationHistory (DebaterA)
+
+        Pipeline->>Debater_B_AI: debateStage turn (refinedPrompt, history + DebaterA's msg)
+        Debater_B_AI-->>Pipeline: Stream chunks (for debate_agent_chunk)
+        Pipeline->>Frontend: yield PipelineEvent (debate_agent_chunk for DebaterB)
+        Debater_B_AI-->>Pipeline: Full message (for debate_agent_message_complete)
+        Pipeline->>Frontend: yield PipelineEvent (debate_agent_message_complete for DebaterB)
+        Pipeline->>Pipeline: Update conversationHistory (DebaterB)
+    end
+
+    Pipeline->>Summarizer_AI: debateStage summary (full_debate_transcript)
+    Summarizer_AI-->>Pipeline: Stream summary chunks (for debate_summary_chunk)
+    Pipeline->>Frontend: yield PipelineEvent (debate_summary_chunk)
+    Summarizer_AI-->>Pipeline: Full JSON summary (parsed for debate_result_summary)
+    Pipeline->>Frontend: yield PipelineEvent (debate_result_summary with agreedPlan, etc.)
+    Pipeline->>Pipeline: Update conversationHistory (Summarizer)
+    Pipeline->>Pipeline: Store agreedPlanFromDebate
+
+    Pipeline->>Frontend: yield PipelineEvent (stage_change: scaffolding_project)
+    Pipeline->>Scaffolder_AI: scaffoldStage(agreedPlanFromDebate)
+    Scaffolder_AI-->>Pipeline: Yields file_create / folder_create events
+    Pipeline->>Frontend: yield PipelineEvent (file_create / folder_create)
+    Pipeline->>Pipeline: Update projectFiles state
+
+    Pipeline->>Frontend: yield PipelineEvent (stage_change: coding_turn)
+    loop Max Turns (or until approved)
+        Pipeline->>Coder_AI (W1): codegenStage(currentFile, agreedPlan, history, projectFiles)
+        Coder_AI (W1)-->>Pipeline: Stream chunks (for assistant_chunk)
+        Pipeline->>Frontend: yield PipelineEvent (assistant_chunk for W1)
+        Coder_AI (W1)-->>Pipeline: Full code & message (for assistant_message_complete)
+        Pipeline->>Frontend: yield PipelineEvent (assistant_message_complete for W1)
+        Pipeline->>Frontend: yield PipelineEvent (file_update)
+        Pipeline->>Pipeline: Update projectFiles & conversationHistory
+
+        Pipeline->>Frontend: yield PipelineEvent (stage_change: reviewing_turn)
+        Pipeline->>Reviewer_AI (W2): reviewStage(currentFile, W1_code, history, projectFiles)
+        Reviewer_AI (W2)-->>Pipeline: Stream chunks (for assistant_chunk)
+        Pipeline->>Frontend: yield PipelineEvent (assistant_chunk for W2)
+        Reviewer_AI (W2)-->>Pipeline: Full review JSON (for assistant_message_complete & review_result)
+        Pipeline->>Frontend: yield PipelineEvent (assistant_message_complete for W2)
+        Pipeline->>Frontend: yield PipelineEvent (review_result)
+        Pipeline->>Pipeline: Update conversationHistory
+        
+        alt Review: APPROVED
+            Pipeline->>Frontend: yield PipelineEvent (stage_change: installing_deps)
+            Pipeline->>Installer_AI: installStage(projectFiles, history)
+            Installer_AI-->>Pipeline: Yields install_command_found / install_summary
+            Pipeline->>Frontend: yield PipelineEvent (install_command_found / install_summary)
+            Pipeline->>Pipeline: Update requiredPackages
+            Pipeline->>Frontend: yield PipelineEvent (stage_change: done)
+            break Loop
+        else Review: REVISION_NEEDED
+            Pipeline->>Pipeline: Switch worker to W1, increment turn
+            Pipeline->>Frontend: yield PipelineEvent (status_update: revision needed)
+        end
+    end
+    
+    Pipeline->>Frontend: yield PipelineEvent (pipeline_finish)
+
+---
+
 ### 🔑 Key Principles & How VibeCodeDuo Elevates "Vibe Coding"
 
 *   **Specialized Multi-Agent Collaboration with Upfront Planning** 🧠💬🤖
