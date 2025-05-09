@@ -9,14 +9,19 @@ export type AiChatMessage = {
 export type Stage =
   | 'initial'
   | 'refining_prompt'
-  | 'debating_plan'
-  | 'scaffolding'
+  | 'debating_plan' // Stubbed, for future use
+  | 'scaffolding_project' // For the scaffold stage
   | 'installing_deps'
   | 'coding_turn'
   | 'reviewing_turn'
-  | 'processing_turn'
+  | 'processing_turn' // Generic processing state if needed
   | 'error'
   | 'done';
+
+export interface ScaffoldStageParams {
+  refinedPrompt: string;
+  workerConfig: WorkerConfig;
+}
 
 export interface CollaborationState {
   stage: Stage;
@@ -31,13 +36,11 @@ export interface CollaborationState {
   lastError: string | null;
   projectType?: string;
   filename?: string;
-
   currentPlan?: {
     files: string[];
     goals: string;
     dependencies: string[];
   };
-
   revisionCountByFile: Record<string, number>;
   approvedFiles: string[];
   pendingInstalls: string[];
@@ -45,39 +48,47 @@ export interface CollaborationState {
   needsReplan?: boolean;
 }
 
+// Worker types for pipeline-level status updates
+export type PipelineWorker = 'w1' | 'w2' | 'refiner' | 'system';
+
+// 🔧 EVENT DATA MAPS - For events yielded by the main collaborationPipeline to the frontend/consumer
 export interface PipelineEventDataMap {
   pipeline_start: { initialState: Pick<CollaborationState, 'initialPrompt' | 'maxTurns'> };
   stage_change: { newStage: Stage; message?: string };
   prompt_refined: { refinedPrompt: string };
-  package_proposed: { packageName: string };
-  file_proposed: { filename: string };
-  file_create: { filename: string; content: string };
-  file_update: { filename: string; content: string };
-  status_update: { message: string; worker?: 'w1' | 'w2' | 'refiner' | 'system' };
-  assistant_chunk: { worker: 'w1' | 'w2' | 'refiner'; chunk: string };
-  assistant_done: { worker: 'w1' | 'w2' | 'refiner' };
+  // package_proposed & file_proposed are examples, not currently used by pipeline itself.
+  // Stages might use them internally or yield them if the pipeline is designed to handle them.
+  // package_proposed: { packageName: string };
+  // file_proposed: { filename: string };
+  file_create: { path: string; content: string }; // Yielded by pipeline when scaffoldStage produces it
+  folder_create: { path: string };               // Yielded by pipeline when scaffoldStage produces it
+  file_update: { filename: string; content: string }; // Yielded by pipeline when codegenStage produces it
+  status_update: { message: string; worker?: PipelineWorker }; // Worker types for pipeline-level status
+  assistant_chunk: { worker: 'w1' | 'w2' | 'refiner'; chunk: string }; // If pipeline re-yields chunks
+  assistant_done: { worker: 'w1' | 'w2' | 'refiner' };  // If pipeline re-yields done signals
   pipeline_error: { message: string };
   pipeline_finish: { finalState: Pick<CollaborationState, 'projectFiles' | 'requiredPackages'> };
-  review_result: {
-    status: string;
+  review_result: { // This is yielded by the pipeline after processing reviewStage's internal output
+    status: "APPROVED" | "REVISION_NEEDED" | "ERROR" | "UNKNOWN"; // Specific statuses from pipeline logic
     key_issues: string[];
     next_action_for_w1: string;
   };
-
-  // 🆕 New install stage events
-  install_command_found: { command: string };
-  install_summary: { commands: string[] };
+  install_command_found: { command: string }; // Yielded by pipeline from installStage
+  install_summary: { commands: string[] };   // Yielded by pipeline from installStage
 }
 
-// Discriminated union for PipelineEvent
+// Discriminated union for events the collaborationPipeline yields
 export type PipelineEvent = {
   [K in keyof PipelineEventDataMap]: { type: K; data: PipelineEventDataMap[K] }
 }[keyof PipelineEventDataMap];
 
+
+// --- Worker and Stage Specific Types ---
+
 export interface WorkerConfig {
   provider: 'openai' | 'ollama';
   model: string;
-  apiKey?: string;
+  apiKey?: string; // API key is optional at this level, stages will check/throw if required
 }
 
 export interface PipelineParams {
@@ -86,9 +97,11 @@ export interface PipelineParams {
   worker1Config: WorkerConfig;
   worker2Config: WorkerConfig;
   projectType?: string;
-  filename?: string;
+  filename?: string; // Target filename for initial coding, if applicable
   maxTurns?: number;
 }
+
+// --- Individual Stage Parameter Types ---
 
 export interface RefineStageParams {
   initialPrompt: string;
@@ -108,8 +121,8 @@ export interface ReviewStageParams {
   filename: string;
   refinedPrompt: string;
   conversationHistory: AiChatMessage[];
-  projectFiles: Record<string, string>;
-  worker1Response: string;
+  projectFiles: Record<string, string>; // For context
+  worker1Response: string; // Full response from Worker 1's coding turn
   workerConfig: WorkerConfig;
   projectType?: string;
 }
@@ -122,43 +135,62 @@ export interface InstallStageParams {
   projectType?: string;
 }
 
+// 🔧 STAGE EVENTS (internal to individual stage logic)
+// These are the events that an individual stage like codegenStage, reviewStage, scaffoldStage, etc., might yield.
+// The collaborationPipeline will consume these and may re-yield them (possibly transformed) as PipelineEvents.
 
-// Events yielded by individual stages
+// Worker types for stage-internal status updates. These must be assignable to PipelineWorker if re-yielded directly.
+export type StageInternalWorker = 'w1' | 'w2' | 'refiner' | 'system';
+// If a stage (e.g., installStage) needs to identify itself with a unique worker name like 'installer'
+// in its status updates, and the pipeline re-yields this status update directly,
+// then 'installer' would also need to be part of PipelineWorker.
+// For simplicity, stages should use one of the common StageInternalWorker types for status messages
+// that are intended to be directly re-yielded by the pipeline.
+
 export type StageEventDataMap = {
+  // Codegen Stage specific events
   'codegen-chunk': { content: string };
-  'codegen-code-chunk': { content: string };
+  'codegen-code-chunk': { content: string }; // If distinct from general chunks
   'codegen-complete': {
-    content: string;
-    fullText: string;
-    messages: AiChatMessage[];
-    finalCode?: string;
+    content: string; // Often the raw LLM response if not parsed into code directly by stage
+    fullText: string; // Guaranteed full text
+    messages: AiChatMessage[]; // Messages from this stage's LLM call to add to history
+    finalCode?: string; // The extracted code, if the stage parses it
   };
 
+  // Review Stage specific events
   'review-chunk': { content: string };
   'review-complete': {
-    fullText: string;
-    messages: AiChatMessage[];
+    fullText: string; // The full textual response from the review LLM
+    messages: AiChatMessage[]; // Messages to add to conversation history from review LLM context
+  };
+  'review_result_internal': { // Internal event from reviewStage before pipeline processes it
+    status: string; // Raw status string from LLM (e.g., "APPROVED", "REVISION_NEEDED")
+    key_issues: string[];
+    next_action_for_w1: string;
   };
 
-  'file_update': { filename: string; content: string };
-  'assistant_chunk': { worker: 'w1' | 'w2' | 'refiner'; chunk: string };
-  'assistant_done': { worker: 'w1' | 'w2' | 'refiner' };
+  // File operations that a stage might emit (e.g., scaffoldStage)
+  'file_create': { path: string; content: string };
+  'folder_create': { path: string };
+  // Note: 'file_update' is primarily a PipelineEvent, but a stage *could* emit it if it directly modifies files
+  // and the pipeline is set up to handle it from stages. Usually, codegenStage provides content
+  // and the pipeline itself creates the 'file_update' PipelineEvent.
 
-  // 🆕 Install stage
+  // General events that any stage might emit
+  'status_update': { message: string; worker: StageInternalWorker };
+  // 'assistant_chunk' & 'assistant_done' are typically PipelineEvents.
+  // Stages like codegenStage or refineStage would emit their own specific chunk/complete events
+  // (e.g., 'codegen-chunk', 'codegen-complete'). The pipeline then transforms these into
+  // 'assistant_chunk'/'assistant_done' PipelineEvents for the frontend.
+
+  // Install Stage specific events
   'install_command': { command: string };
-  'install_analysis_complete': { commands: string[] };
-  'install_no_actions_needed': {};
+  'install_analysis_complete': { commands: string[] }; // Summarizes all commands found
+  'install_no_actions_needed': {}; // If no packages need installation
 };
 
-export type StageEvent =
-  | {
-      [K in keyof StageEventDataMap]: { type: K; data: StageEventDataMap[K] }
-    }[keyof StageEventDataMap]
-  | {
-      type: "review_result";
-      data: {
-        status: string;
-        key_issues: string[];
-        next_action_for_w1: string;
-      };
-    };
+// Discriminated union for events that individual stages yield
+export type StageEvent = {
+  [K in keyof StageEventDataMap]: { type: K; data: StageEventDataMap[K] }
+}[keyof StageEventDataMap];

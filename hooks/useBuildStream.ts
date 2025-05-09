@@ -42,7 +42,7 @@ const initialState: BuildStreamState = {
   refinedPrompt: null,
   error: null,
   isFinished: false,
-  requiredInstalls: [], 
+  requiredInstalls: [],
 };
 
 type Action =
@@ -119,38 +119,38 @@ function buildStreamReducer(state: BuildStreamState, action: Action): BuildStrea
       return { ...state, isFinished: true };
     case "RESET":
       return initialState;
-      case "ATTACH_PARSED_REVIEW": {
-        const lastIdx = [...state.messages]
-          .reverse()
-          .findIndex((msg) => msg.sender === "worker2");
-      
-        if (lastIdx === -1) return state;
-      
-        const trueIdx = state.messages.length - 1 - lastIdx;
-        const newMessages = [...state.messages];
-        newMessages[trueIdx] = {
-          ...newMessages[trueIdx],
-          parsedReview: action.payload.parsed,
-        };
-      
-        console.log("✅ Attached parsedReview to Worker 2 message:", newMessages[trueIdx]);
-      
-        return { ...state, messages: newMessages };
-      }
+    case "ATTACH_PARSED_REVIEW": {
+      const lastIdx = [...state.messages]
+        .reverse()
+        .findIndex((msg) => msg.sender === "worker2");
 
-      case "ADD_INSTALL_COMMAND":
-        return {
-          ...state,
-          requiredInstalls: [...state.requiredInstalls, action.payload.command],
-        };
-  
-      case "SET_INSTALL_SUMMARY":
-        return {
-          ...state,
-          requiredInstalls: action.payload.commands,
-        };
-  
-      
+      if (lastIdx === -1) return state;
+
+      const trueIdx = state.messages.length - 1 - lastIdx;
+      const newMessages = [...state.messages];
+      newMessages[trueIdx] = {
+        ...newMessages[trueIdx],
+        parsedReview: action.payload.parsed,
+      };
+
+      console.log("✅ Attached parsedReview to Worker 2 message:", newMessages[trueIdx]);
+
+      return { ...state, messages: newMessages };
+    }
+
+    case "ADD_INSTALL_COMMAND":
+      return {
+        ...state,
+        requiredInstalls: [...state.requiredInstalls, action.payload.command],
+      };
+
+    case "SET_INSTALL_SUMMARY":
+      return {
+        ...state,
+        requiredInstalls: action.payload.commands,
+      };
+
+
     default:
       return state;
 
@@ -226,15 +226,21 @@ export function useBuildStream(isSendingRef: React.MutableRefObject<boolean>) {
             case "prompt_refined":
               dispatch({ type: "SET_PROMPT", payload: parsed.data.refinedPrompt });
               break;
-              case "file_create":
-                useFileStore.getState().createFileOrFolder(parsed.data.filename, "file", parsed.data.content);
-                break;
-              
-              case "file_update":
-                useFileStore.getState().updateFileContent(parsed.data.filename, parsed.data.content);
-                dispatch({ type: "UPDATE_FILE", payload: parsed.data }); // optional but keeps old reducer state in sync
-                break;
-              
+
+            case "folder_create":
+              useFileStore.getState().createFileOrFolder(parsed.data.path, "folder");
+              break;
+
+            case "file_create":
+              useFileStore.getState().createFileOrFolder(parsed.data.path, "file", parsed.data.content);
+              break;
+
+
+            case "file_update":
+              useFileStore.getState().updateFileContent(parsed.data.filename, parsed.data.content);
+              dispatch({ type: "UPDATE_FILE", payload: parsed.data }); // optional but keeps old reducer state in sync
+              break;
+
             case "assistant_chunk":
               dispatch({ type: "APPEND_ASSISTANT_CHUNK", payload: { worker: parsed.data.worker, chunk: parsed.data.chunk } });
               break;
@@ -247,10 +253,10 @@ export function useBuildStream(isSendingRef: React.MutableRefObject<boolean>) {
             case "pipeline_finish":
               dispatch({ type: "SET_FINISHED" });
               break;
-              case "review_result":
-                dispatch({ type: "ATTACH_PARSED_REVIEW", payload: { parsed: parsed.data } });
-                break;
-              
+            case "review_result":
+              dispatch({ type: "ATTACH_PARSED_REVIEW", payload: { parsed: parsed.data } });
+              break;
+
           }
         }
       }

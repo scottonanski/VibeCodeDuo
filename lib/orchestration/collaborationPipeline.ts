@@ -11,9 +11,11 @@ import {
 import { refineStage } from './stages/refineStage';
 import { codegenStage } from './stages/codegenStage';
 import { reviewStage } from './stages/reviewStage';
-import { installStage } from './stages/installStage'; // <<< ENSURE THIS IMPORT IS PRESENT
+import { installStage } from './stages/installStage';
 import { extractCodeFromMarkdown } from '@/lib/utils/markdownParser';
 import { parseReviewOutput } from '@/lib/utils/jsonParser'; // Assuming this is your correct path
+import { scaffoldStage } from './stages/scaffoldStage';  // <<< scaffoldStage is imported
+
 
 // Helper: Sliding window for conversation history
 function getTruncatedHistory(history: AiChatMessage[], refinedPrompt: string): AiChatMessage[] {
@@ -34,10 +36,6 @@ export async function* collaborationPipeline(
     params: PipelineParams
 ): AsyncGenerator<PipelineEvent, void> {
 
-    // console.log('[Pipeline Debug] Initializing. Refiner config apiKey:', params.refinerConfig.apiKey ? params.refinerConfig.apiKey.substring(0, 10) + '...' : 'undefined');
-    // console.log('[Pipeline Debug] Worker 1 config apiKey:', params.worker1Config.apiKey ? params.worker1Config.apiKey.substring(0, 10) + '...' : 'undefined');
-    // console.log('[Pipeline Debug] Worker 2 config apiKey:', params.worker2Config.apiKey ? params.worker2Config.apiKey.substring(0, 10) + '...' : 'undefined');
-
     const state: CollaborationState = {
         stage: 'initial',
         initialPrompt: params.prompt,
@@ -47,19 +45,46 @@ export async function* collaborationPipeline(
         projectFiles: {},
         requiredPackages: [],
         conversationHistory: [],
-        currentWorker: 'w1', // Default to w1, refine stage will occur before first w1 turn if needed
+        currentWorker: 'w1',
         lastError: null,
         projectType: params.projectType,
         filename: params.filename,
-        // Initialize missing properties
         revisionCountByFile: {},
         approvedFiles: [],
         pendingInstalls: [],
-        // MAX_REVISIONS_PER_FILE: 3, // Example if you want to set a default
     };
 
     try {
         yield { type: 'pipeline_start', data: { initialState: { initialPrompt: state.initialPrompt, maxTurns: state.maxTurns } } };
+
+        // --- SCAFFOLD STAGE ---
+        state.stage = 'scaffolding_project'; // <<< SCOTT: Verify 'scaffolding_project' matches your Stage type in types.ts. Adjust if needed (e.g., to 'scaffolding').
+        yield { type: 'stage_change', data: { newStage: state.stage } };
+        yield { type: 'status_update', data: { message: `📁 Generating project scaffold...`, worker: 'system' } };
+
+        try {
+            for await (const step of scaffoldStage({
+                refinedPrompt: state.initialPrompt, // Using initialPrompt for scaffolding before refinement
+                workerConfig: params.refinerConfig // Using refiner's config for scaffold LLM, adjust if needed
+            })) {
+                if (step.type === 'folder_create') {
+                    yield { type: 'folder_create', data: step.data };
+                } else if (step.type === 'file_create') {
+                    state.projectFiles[step.data.path] = step.data.content; // Keep pipeline state in sync
+                    yield { type: 'file_create', data: step.data };
+                } else if (step.type === 'status_update') {
+                    yield step; // Re-yield status updates from the stage
+                }
+                // Add other StageEvent types if scaffoldStage emits them
+            }
+            yield { type: 'status_update', data: { message: `✅ Scaffold stage completed successfully.`, worker: 'system' } };
+        } catch (error: any) {
+            state.lastError = `Scaffold stage failed: ${error.message}`;
+            state.stage = 'error';
+            yield { type: 'pipeline_error', data: { message: state.lastError } };
+            return; // Terminate pipeline if scaffold stage critically fails
+        }
+        // --- END SCAFFOLD STAGE ---
 
         // --- REFINE STAGE ---
         state.stage = 'refining_prompt';
@@ -73,19 +98,19 @@ export async function* collaborationPipeline(
             state.conversationHistory.push(...refineResult.messages);
         } catch (error: any) {
             state.lastError = `Refine stage failed: ${error.message}`;
-            state.stage = 'error'; // Set stage to error
+            state.stage = 'error';
             yield { type: 'pipeline_error', data: { message: state.lastError } };
-            return; // Terminate pipeline
+            return;
         }
 
         yield { type: 'prompt_refined', data: { refinedPrompt: state.refinedPrompt } };
         yield { type: 'status_update', data: { message: '✅ Refined prompt accepted. Starting collaboration turns...' } };
 
-        let lastWorker1FullTextResponse = ""; // <<< CORRECTLY DECLARED HERE
+        let lastWorker1FullTextResponse = "";
 
         // --- CODING & REVIEW LOOP ---
         while (state.currentTurn < state.maxTurns && (state.stage as Stage) !== 'done' && (state.stage as Stage) !== 'error') {
-            const currentFilename = state.filename || 'app/page.tsx';
+            const currentFilename = state.filename || 'app/page.tsx'; // Default filename if not specified
 
             if (state.currentWorker === 'w1') {
                 state.stage = 'coding_turn';
@@ -93,7 +118,7 @@ export async function* collaborationPipeline(
                 yield { type: 'status_update', data: { message: `🛠️ Worker 1 coding ${currentFilename}...`, worker: 'w1' } };
 
                 let currentFileContent = state.projectFiles[currentFilename] || "";
-                let tempAccumulatedW1Response = ""; // Scoped to W1 turn
+                let tempAccumulatedW1Response = "";
 
                 try {
                     for await (const step of codegenStage({
@@ -107,33 +132,29 @@ export async function* collaborationPipeline(
                         if (step.type === 'codegen-chunk') {
                             tempAccumulatedW1Response += step.data.content;
                             yield { type: 'assistant_chunk', data: { worker: 'w1', chunk: step.data.content } };
-                        } else if (step.type === 'codegen-code-chunk') { // If codegenStage yields specific code chunks
+                        } else if (step.type === 'codegen-code-chunk') {
                             state.projectFiles[currentFilename] = (state.projectFiles[currentFilename] || "") + step.data.content;
-                            tempAccumulatedW1Response += step.data.content;
+                            tempAccumulatedW1Response += step.data.content; // Ensure this is also accumulated
                             yield { type: 'file_update', data: { filename: currentFilename, content: state.projectFiles[currentFilename] } };
-                            yield { type: 'assistant_chunk', data: { worker: 'w1', chunk: step.data.content } };
+                            yield { type: 'assistant_chunk', data: { worker: 'w1', chunk: step.data.content } }; // Send code chunk as assistant chunk too
                         } else if (step.type === 'codegen-complete') {
-                            // Ensure tempAccumulatedW1Response has the full text if step.data.fullText isn't primary
-                            lastWorker1FullTextResponse = step.data.fullText || tempAccumulatedW1Response; // <<< CORRECTLY ASSIGNED HERE
+                            lastWorker1FullTextResponse = step.data.fullText || tempAccumulatedW1Response;
                             
-                            const extractedCode = extractCodeFromMarkdown(lastWorker1FullTextResponse, 'tsx'); // or more generic language detection
+                            const extractedCode = extractCodeFromMarkdown(lastWorker1FullTextResponse, 'tsx');
                             if (extractedCode) {
                                 state.projectFiles[currentFilename] = extractedCode;
-                            } else if (lastWorker1FullTextResponse.trim()) { // Fallback if no code block but has content
+                            } else if (lastWorker1FullTextResponse.trim()) {
                                 console.warn(`[Pipeline] No .tsx code block found in Worker 1's response for ${currentFilename}. Using full response.`);
                                 state.projectFiles[currentFilename] = lastWorker1FullTextResponse;
                             } else {
                                 console.warn(`[Pipeline] Worker 1 returned empty response for ${currentFilename}.`);
-                                // Optionally, do not update file if response is empty, or keep old content
                             }
-                            // Always yield file_update if there's a change or new content
-                            if (state.projectFiles[currentFilename] !== currentFileContent || !currentFileContent && state.projectFiles[currentFilename]) {
+                            if (state.projectFiles[currentFilename] !== currentFileContent || (!currentFileContent && state.projectFiles[currentFilename])) {
                                 yield { type: 'file_update', data: { filename: currentFilename, content: state.projectFiles[currentFilename] } };
                             }
-                            state.conversationHistory.push(...(step.data.messages || [])); // Add messages from codegen stage context
+                            state.conversationHistory.push(...(step.data.messages || []));
                         }
                     }
-                    // Add the final accumulated response to history if not already done by codegen-complete messages
                     if (!state.conversationHistory.find(m => m.role === 'assistant' && m.name === 'w1' && m.content === lastWorker1FullTextResponse)) {
                          state.conversationHistory.push({ role: 'assistant', name: 'w1', content: lastWorker1FullTextResponse });
                     }
@@ -143,9 +164,9 @@ export async function* collaborationPipeline(
 
                 } catch (error: any) {
                     state.lastError = `Worker 1 (Codegen) turn failed: ${error.message}`;
-                    state.stage = 'error'; // Set stage to error
+                    state.stage = 'error';
                     yield { type: 'pipeline_error', data: { message: state.lastError } };
-                    return; // Terminate pipeline
+                    return;
                 }
 
             } else if (state.currentWorker === 'w2') {
@@ -161,7 +182,7 @@ export async function* collaborationPipeline(
                         refinedPrompt: state.refinedPrompt,
                         conversationHistory: getTruncatedHistory(state.conversationHistory, state.refinedPrompt),
                         projectFiles: state.projectFiles,
-                        worker1Response: lastWorker1FullTextResponse, // <<< CORRECTLY USED HERE
+                        worker1Response: lastWorker1FullTextResponse,
                         workerConfig: params.worker2Config,
                         projectType: state.projectType,
                     })) {
@@ -169,15 +190,11 @@ export async function* collaborationPipeline(
                             fullReviewTextW2 += step.data.content;
                             yield { type: 'assistant_chunk', data: { worker: 'w2', chunk: step.data.content } };
                         } else if (step.type === 'review-complete') {
-                            fullReviewTextW2 = step.data.fullText || fullReviewTextW2; // Ensure full text is captured
+                            fullReviewTextW2 = step.data.fullText || fullReviewTextW2;
                         }
                     }
                     state.conversationHistory.push({ role: 'assistant', name: 'w2', content: fullReviewTextW2 });
                     yield { type: 'assistant_done', data: { worker: 'w2' } };
-
-                    // console.log("--- Worker 2 Raw Review Output START ---");
-                    // console.log(fullReviewTextW2);
-                    // console.log("--- Worker 2 Raw Review Output END ---");
 
                     const parsedReview = parseReviewOutput(fullReviewTextW2);
                     state.conversationHistory.push({ role: 'system', name: 'review_parser', content: `Parsed Review: Status - ${parsedReview.status}, Action - ${parsedReview.next_action_for_w1}, Issues - ${parsedReview.key_issues.join('; ')}` });
@@ -186,10 +203,8 @@ export async function* collaborationPipeline(
                     if (parsedReview.status === "APPROVED") {
                         yield { type: 'status_update', data: { message: `🎉 Worker 2 approved changes for ${currentFilename}.`, worker: 'system' } };
                         
-                        // --- INSTALL STAGE ---
                         state.stage = 'installing_deps'; 
                         yield { type: 'stage_change', data: { newStage: state.stage } };
-                        // installStage itself can yield an initial status update if desired.
 
                         try {
                             for await (const installStep of installStage({
@@ -212,12 +227,9 @@ export async function* collaborationPipeline(
                             }
                         } catch (error: any) { 
                             state.lastError = `Install stage failed: ${error.message}`;
-                            // Don't set state.stage = 'error' here if we want the pipeline to continue
-                            yield { type: 'pipeline_error', data: { message: state.lastError } }; // Report error
+                            yield { type: 'pipeline_error', data: { message: state.lastError } };
                             console.warn(`[Pipeline] Install stage failed: ${state.lastError}. Continuing to next turn.`);
-                            // If install stage fails, we still proceed to the next turn.
                         }
-                        // --- END INSTALL STAGE ---
 
                         state.currentTurn++; 
                         state.currentWorker = 'w1'; 
@@ -227,31 +239,29 @@ export async function* collaborationPipeline(
                             state.stage = 'coding_turn'; 
                         }
 
-                    } else if (parsedReview.status === "REVISION_NEEDED" || parsedReview.status === "NEEDS_CLARIFICATION") {
+                    } else if (parsedReview.status === "REVISION_NEEDED" || parsedReview.status === "NEEDS_CLARIFICATION") { // Handle NEEDS_CLARIFICATION if it's a possible status
                         yield { type: 'status_update', data: { message: `⚠️ Worker 2 requests revisions/clarification for ${currentFilename}. Worker 1 to address.`, worker: 'system' } };
                         state.currentWorker = 'w1'; 
                         state.stage = 'coding_turn';
-                    } else { // UNKNOWN or ERROR_PARSING_JSON or ERROR_NO_JSON_FOUND
+                    } else { 
                         state.lastError = `Worker 2 review parsing error or unknown status: ${parsedReview.status} - ${(parsedReview as any).next_action_for_w1 || 'No action specified'}`;
-                        state.stage = 'error'; // Set stage to error for unhandled review status
+                        state.stage = 'error';
                         yield { type: 'pipeline_error', data: { message: state.lastError } };
-                        return; // Terminate pipeline
+                        return;
                     }
 
                 } catch (error: any) {
                     state.lastError = `Worker 2 (Review) turn failed: ${error.message}`;
-                    state.stage = 'error'; // Set stage to error
+                    state.stage = 'error';
                     yield { type: 'pipeline_error', data: { message: state.lastError } };
-                    return; // Terminate pipeline
+                    return;
                 }
             }
-        } // End while loop
+        }
 
-        // If loop finished due to maxTurns but not explicitly set to 'done' or 'error'
         if ((state.stage as Stage) !== 'error' && (state.stage as Stage) !== 'done') {
             state.stage = 'done';
         }
-        // Yield final stage change only if it makes sense (e.g., if it became 'done')
         if (state.stage === 'done') {
             yield { type: 'stage_change', data: { newStage: state.stage, message: "Collaboration cycle complete." } };
         }
@@ -263,6 +273,6 @@ export async function* collaborationPipeline(
         state.lastError = `Critical pipeline error: ${error.message}`;
         state.stage = 'error'; 
         yield { type: 'pipeline_error', data: { message: state.lastError } };
-        yield { type: 'pipeline_finish', data: { finalState: { projectFiles: state.projectFiles, requiredPackages: state.requiredPackages } } }; // Ensure final state is sent even on top-level error
+        yield { type: 'pipeline_finish', data: { finalState: { projectFiles: state.projectFiles, requiredPackages: state.requiredPackages } } };
     }
 }
