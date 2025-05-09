@@ -107,9 +107,6 @@ sequenceDiagram
     Pipeline->>Frontend: yield PipelineEvent (pipeline_finish)
 
 ```
-
----
-
 ---
 
 ### 🔑 Key Principles & How VibeCodeDuo Elevates "Vibe Coding"
