@@ -13,7 +13,13 @@ export async function refineStage(
     console.log('[RefineStage Debug] Full refinerConfig:', JSON.stringify(config, null, 2));
 
 
-    const systemPrompt = `You are an AI prompt refiner. Your job is to take vague or casual user input and transform it into a clear, concise, actionable software task description for AI web developers. Focus on specifying technologies if mentioned (or infer sensible defaults if a project type is implied), key features, and desired structure. Output ONLY the refined prompt itself, without any conversational fluff, introductory or concluding remarks.`;
+    const systemPrompt = `You are an AI prompt refiner.
+    Your job is to take vague or casual user input and transform it into
+     a clear, concise, actionable software task description for AI web developers. 
+     Focus on specifying technologies if mentioned (or infer sensible defaults 
+     if a project type is implied), key features, and desired structure. 
+     Output ONLY the refined prompt itself, without any conversational fluff, 
+     introductory or concluding remarks.`;
 
     const messagesForRefiner: AiChatMessage[] = [
         { role: 'system', content: systemPrompt },

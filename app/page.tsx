@@ -28,6 +28,7 @@ export default function Home() {
 
   const [settings, setSettings] = useState<Settings>({
     provider: "Ollama",
+    refinerModel: "phi3",
     worker1Model: "deepcoder:1.5b",
     worker2Model: "qwen3:4b",
   })

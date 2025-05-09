@@ -9,12 +9,12 @@ export type AiChatMessage = {
 export type Stage =
   | 'initial'
   | 'refining_prompt'
-  | 'debating_plan' // Stubbed, for future use
-  | 'scaffolding_project' // For the scaffold stage
+  | 'debating_plan'
+  | 'scaffolding_project'
   | 'installing_deps'
   | 'coding_turn'
   | 'reviewing_turn'
-  | 'processing_turn' // Generic processing state if needed
+  | 'processing_turn'
   | 'error'
   | 'done';
 
@@ -32,7 +32,7 @@ export interface CollaborationState {
   projectFiles: Record<string, string>;
   requiredPackages: string[];
   conversationHistory: AiChatMessage[];
-  currentWorker: 'w1' | 'w2' | null;
+  currentWorker: PipelineWorker;
   lastError: string | null;
   projectType?: string;
   filename?: string;
@@ -48,52 +48,69 @@ export interface CollaborationState {
   needsReplan?: boolean;
 }
 
-// Worker types for pipeline-level status updates
-export type PipelineWorker = 'w1' | 'w2' | 'refiner' | 'system';
+export type PipelineWorker = 'w1' | 'w2' | 'refiner' | 'debaterA' | 'debaterB' | 'summarizer' | 'system' | null;
 
-// --- NEW: Data for assistant_message_complete event ---
 export interface AssistantMessageCompleteData {
-  worker: 'w1' | 'w2' | 'refiner'; // Which worker's message is complete
-  fullText: string;               // The final, full textual content of the AI's message
-  codeExtracted: boolean;         // True if code was extracted and applied from this message
+  worker: 'w1' | 'w2' | 'debaterA' | 'debaterB' | 'summarizer' | 'refiner';
+  fullText: string;
+  codeExtracted: boolean;
 }
-// --- END NEW ---
 
-// 🔧 EVENT DATA MAPS - For events yielded by the main collaborationPipeline to the frontend/consumer
+export interface CodeFile {
+  path: string;
+  content: string;
+  status?: 'created' | 'updated' | 'unchanged' | 'deleted';
+}
+
 export interface PipelineEventDataMap {
   pipeline_start: { initialState: Pick<CollaborationState, 'initialPrompt' | 'maxTurns'> };
   stage_change: { newStage: Stage; message?: string };
   prompt_refined: { refinedPrompt: string };
-  file_create: { path: string; content: string }; // Yielded by pipeline when scaffoldStage produces it
-  folder_create: { path: string };               // Yielded by pipeline when scaffoldStage produces it
-  file_update: { filename: string; content: string }; // Yielded by pipeline when codegenStage produces it
-  status_update: { message: string; worker?: PipelineWorker }; // Worker types for pipeline-level status
-  assistant_chunk: { worker: 'w1' | 'w2' | 'refiner'; chunk: string }; // If pipeline re-yields chunks
-  assistant_done: { worker: 'w1' | 'w2' | 'refiner' };  // If pipeline re-yields done signals
-  assistant_message_complete: AssistantMessageCompleteData; // <<< NEW EVENT
+  file_create: { path: string; content: string };
+  folder_create: { path: string };
+  file_update: { filename: string; content: string };
+  status_update: { message: string; worker?: PipelineWorker };
+  assistant_chunk: { worker: PipelineWorker; chunk: string };
+  assistant_done: { worker: PipelineWorker };
+  assistant_message_complete: AssistantMessageCompleteData;
   pipeline_error: { message: string };
   pipeline_finish: { finalState: Pick<CollaborationState, 'projectFiles' | 'requiredPackages'> };
-  review_result: { // This is yielded by the pipeline after processing reviewStage's internal output
-    status: "APPROVED" | "REVISION_NEEDED" | "ERROR" | "UNKNOWN"; // Specific statuses from pipeline logic
+  review_result: {
+    status: "APPROVED" | "REVISION_NEEDED" | "ERROR" | "UNKNOWN";
     key_issues: string[];
     next_action_for_w1: string;
   };
-  install_command_found: { command: string }; // Yielded by pipeline from installStage
-  install_summary: { commands: string[] };   // Yielded by pipeline from installStage
+  install_command_found: { command: string };
+  install_summary: { commands: string[] };
+
+  // --- Debate Stage Events ---
+  debate_agent_chunk: { agent: 'debaterA' | 'debaterB'; chunk: string };
+  debate_agent_message_complete: { agent: 'debaterA' | 'debaterB'; fullText: string; turn: number };
+  debate_summary_chunk: { agent: 'summarizer'; chunk: string };
+  debate_result_summary: {
+    summaryText: string;
+    agreedPlan?: string;
+    options?: string[];
+    requiresResolution: boolean;
+    fullTranscript: AiChatMessage[]; // <<< THIS LINE IS ADDED/CONFIRMED
+  };
+
+  // --- Scaffold Stage Events ---
+  scaffold_result: { // This type was defined but not explicitly used by scaffoldStage/pipeline for yielding PipelineEvents
+    files: CodeFile[];
+    summary: string;
+    projectFiles: Record<string, string>;
+  };
 }
 
-// Discriminated union for events the collaborationPipeline yields
 export type PipelineEvent = {
   [K in keyof PipelineEventDataMap]: { type: K; data: PipelineEventDataMap[K] }
 }[keyof PipelineEventDataMap];
 
-
-// --- Worker and Stage Specific Types ---
-
 export interface WorkerConfig {
   provider: 'openai' | 'ollama';
   model: string;
-  apiKey?: string; // API key is optional at this level, stages will check/throw if required
+  apiKey?: string;
 }
 
 export interface PipelineParams {
@@ -101,12 +118,13 @@ export interface PipelineParams {
   refinerConfig: WorkerConfig;
   worker1Config: WorkerConfig;
   worker2Config: WorkerConfig;
+  debaterAConfig?: WorkerConfig; // Already optional, correct
+  debaterBConfig?: WorkerConfig; // Already optional, correct
+  summarizerConfig?: WorkerConfig; // Already optional, correct
   projectType?: string;
-  filename?: string; // Target filename for initial coding, if applicable
+  filename?: string;
   maxTurns?: number;
 }
-
-// --- Individual Stage Parameter Types ---
 
 export interface RefineStageParams {
   initialPrompt: string;
@@ -126,8 +144,8 @@ export interface ReviewStageParams {
   filename: string;
   refinedPrompt: string;
   conversationHistory: AiChatMessage[];
-  projectFiles: Record<string, string>; // For context
-  worker1Response: string; // Full response from Worker 1's coding turn
+  projectFiles: Record<string, string>;
+  worker1Response: string;
   workerConfig: WorkerConfig;
   projectType?: string;
 }
@@ -140,50 +158,162 @@ export interface InstallStageParams {
   projectType?: string;
 }
 
-// 🔧 STAGE EVENTS (internal to individual stage logic)
-// These are the events that an individual stage like codegenStage, reviewStage, scaffoldStage, etc., might yield.
-// The collaborationPipeline will consume these and may re-yield them (possibly transformed) as PipelineEvents.
+export interface DebateStageParams {
+  refinedPrompt: string;
+  conversationHistory: AiChatMessage[];
+  debaterAConfig: WorkerConfig;
+  debaterBConfig: WorkerConfig;
+  summarizerConfig: WorkerConfig;
+  maxTurnsPerAgent?: number;
+  allowTieBreaker?: boolean; // This was in the plan but not used in debateStage.ts; can be removed or implemented later.
+}
 
-// Worker types for stage-internal status updates. These must be assignable to PipelineWorker if re-yielded directly.
-export type StageInternalWorker = 'w1' | 'w2' | 'refiner' | 'system';
+export type StageInternalWorker = 'w1' | 'w2' | 'refiner' | 'system'; // Keep as is
 
 export type StageEventDataMap = {
-  // Codegen Stage specific events
   'codegen-chunk': { content: string };
-  'codegen-code-chunk': { content: string }; // If distinct from general chunks
+  'codegen-code-chunk': { content: string };
   'codegen-complete': {
-    content: string; // Often the raw LLM response if not parsed into code directly by stage
-    fullText: string; // Guaranteed full text
-    messages: AiChatMessage[]; // Messages from this stage's LLM call to add to history
-    finalCode?: string; // The extracted code, if the stage parses it
+    content: string; // Typically the extracted code
+    fullText: string; // The full response from the LLM
+    messages: AiChatMessage[]; // The messages sent to and received from the LLM for this stage
+    finalCode?: string; // Explicit final code if different from extracted 'content'
   };
-
-  // Review Stage specific events
   'review-chunk': { content: string };
   'review-complete': {
-    fullText: string; // The full textual response from the review LLM
-    messages: AiChatMessage[]; // Messages to add to conversation history from review LLM context
+    fullText: string;
+    messages: AiChatMessage[];
   };
-  'review_result_internal': { // Internal event from reviewStage before pipeline processes it
-    status: string; // Raw status string from LLM (e.g., "APPROVED", "REVISION_NEEDED")
+  'review_result_internal': { // This seems like an internal detail, not directly a pipeline event.
+    status: string;
     key_issues: string[];
     next_action_for_w1: string;
   };
-
-  // File operations that a stage might emit (e.g., scaffoldStage)
-  'file_create': { path: string; content: string };
-  'folder_create': { path: string };
-
-  // General events that any stage might emit
-  'status_update': { message: string; worker: StageInternalWorker };
-
-  // Install Stage specific events
+  'file_create': { path: string; content: string }; // Matches PipelineEvent
+  'folder_create': { path: string }; // Matches PipelineEvent
+  'status_update': { message: string; worker: StageInternalWorker }; // Worker type is more constrained here
   'install_command': { command: string };
-  'install_analysis_complete': { commands: string[] }; // Summarizes all commands found
-  'install_no_actions_needed': {}; // If no packages need installation
+  'install_analysis_complete': { commands: string[] };
+  'install_no_actions_needed': {};
+
+  // --- Debate stage internal (StageEvent) ---
+  'debate_agent_chunk': { agent: 'debaterA' | 'debaterB'; chunk: string }; // Matches PipelineEvent
+  'debate_agent_message_complete': { agent: 'debaterA' | 'debaterB'; fullText: string; turn: number }; // Matches PipelineEvent
+  'debate_summary_chunk': { chunk: string }; // PipelineEvent adds 'agent: "summarizer"'
+  'debate_result_summary': { // This is for the StageEvent yielded by debateStage.ts
+    summaryText: string;
+    fullTranscript: AiChatMessage[]; // Correctly has fullTranscript
+    agreedPlan?: string;
+    options?: string[];
+    requiresResolution?: boolean; // Made optional to align with how it's set in debateStage (defaults to true if not parsed)
+  };
+
+  // --- Scaffold stage internal (StageEvent) ---
+  // These are fine as internal stage events. The pipeline currently handles file/folder_create directly.
+  'scaffold_chunk': { chunk: string };
+  'scaffold_complete': {
+    files: CodeFile[];
+    summary: string;
+    messages: AiChatMessage[];
+    projectFiles: Record<string, string>;
+  };
 };
 
-// Discriminated union for events that individual stages yield
 export type StageEvent = {
   [K in keyof StageEventDataMap]: { type: K; data: StageEventDataMap[K] }
 }[keyof StageEventDataMap];
+
+// ======================================================================================
+// FILE EXPLANATION: lib/orchestration/stages/types.ts
+// ======================================================================================
+//
+// This TypeScript file serves as the central repository for type definitions used
+// throughout the VibeCodeDuo AI collaboration pipeline, particularly for defining the
+// structure of data passed between stages, events communicated to the frontend,
+// and configuration objects.
+//
+// Key Type Categories Defined:
+//
+// 1. Core Data Structures:
+//    - `AiChatMessage`: Defines the structure for messages exchanged with AI models,
+//      including `role` (user, assistant, system, tool), `content`, and optional `name`.
+//    - `Stage`: An enumeration of all possible stages the pipeline can be in (e.g.,
+//      'refining_prompt', 'debating_plan', 'coding_turn').
+//    - `CollaborationState`: A comprehensive interface describing the overall state
+//      of the pipeline at any given time. It includes prompts, turn counts, project
+//      files, conversation history, current worker, errors, etc.
+//    - `PipelineWorker`: A type defining the possible "senders" or workers in the
+//      pipeline, including AI agents ('w1', 'w2', 'refiner', 'debaterA', 'debaterB',
+//      'summarizer') and 'system'.
+//    - `CodeFile`: Represents a file within the generated project, with `path` and `content`.
+//    - `WorkerConfig`: Defines the configuration for an AI worker/model, including
+//      `provider` (openai, ollama), `model` name, and optional `apiKey`.
+//
+// 2. Pipeline Parameters:
+//    - `PipelineParams`: Specifies the input parameters required to start the
+//      `collaborationPipeline`. This includes the initial `prompt`, configurations for
+//      the refiner, worker1, and worker2, and optional configurations for debate agents
+//      (which default to using worker1/worker2/refiner configs).
+//
+// 3. Stage-Specific Parameters:
+//    - Interfaces like `ScaffoldStageParams`, `RefineStageParams`, `CodegenStageParams`,
+//      `ReviewStageParams`, `InstallStageParams`, and `DebateStageParams` define the
+//      specific inputs required by each individual stage function.
+//
+// 4. Pipeline Events (`PipelineEventDataMap` and `PipelineEvent`):
+//    - `PipelineEventDataMap`: A crucial mapped type that defines the structure of data (`data`
+//      payload) associated with each type of event that the `collaborationPipeline`
+//      can yield to the frontend. The keys of this map are event type strings (e.g.,
+//      'pipeline_start', 'file_create', 'assistant_chunk', 'debate_result_summary').
+//    - `PipelineEvent`: A discriminated union type created from `PipelineEventDataMap`.
+//      An object of this type will have a `type` property (one of the event type strings)
+//      and a `data` property whose structure matches the definition in
+//      `PipelineEventDataMap` for that specific `type`. These are the events the
+//      frontend (`useBuildStream`) directly consumes.
+//    - Includes definitions for new debate-related pipeline events:
+//      - `debate_agent_chunk`
+//      - `debate_agent_message_complete`
+//      - `debate_summary_chunk`
+//      - `debate_result_summary` (updated to include `fullTranscript`)
+//
+// 5. Stage-Internal Events (`StageEventDataMap` and `StageEvent`):
+//    - `StageEventDataMap`: Similar to `PipelineEventDataMap`, but defines the events
+//      that individual stage functions (like `codegenStage` or `debateStage`) yield
+//      *internally* to the `collaborationPipeline`.
+//    - `StageEvent`: A discriminated union type for these internal stage events.
+//    - The `collaborationPipeline` consumes these `StageEvent`s and often transforms or
+//      re-yields them as `PipelineEvent`s. Sometimes the structure is identical,
+//      sometimes it's adapted (e.g., `debate_summary_chunk` from `StageEvent` gets an
+//      `agent: 'summarizer'` field when it becomes a `PipelineEvent`).
+//    - The `debate_result_summary` in `StageEventDataMap` correctly includes
+//      `fullTranscript`, which `debateStage.ts` yields.
+//
+// 6. Miscellaneous Types:
+//    - `AssistantMessageCompleteData`: Defines the payload for the
+//      `assistant_message_complete` event.
+//    - `StageInternalWorker`: A more restricted set of worker types for status updates
+//      originating from within a stage's internal logic.
+//
+// Purpose and Importance:
+// - Type Safety: Provides strong typing across the backend orchestration and for the
+//   data contract with the frontend, reducing runtime errors and improving developer
+//   experience.
+// - Clarity: Acts as a clear specification for the data structures and events involved
+//   in the pipeline.
+// - Maintainability: Centralizing type definitions makes it easier to understand and
+//   modify the pipeline's data flow.
+// - Frontend-Backend Contract: `PipelineEventDataMap` is particularly vital as it defines
+//   the precise "language" spoken between the server-side pipeline and the client-side
+//   UI via Server-Sent Events. Any changes here must be coordinated.
+//
+// Recent Changes (for Debate Stage):
+// - Added `debaterA`, `debaterB`, `summarizer` to `PipelineWorker`.
+// - Added `debating_plan` to `Stage`.
+// - Added `debaterAConfig`, `debaterBConfig`, `summarizerConfig` (as optional) to `PipelineParams`.
+// - Defined `DebateStageParams`.
+// - Added new event types and their data structures to `PipelineEventDataMap` and
+//   `StageEventDataMap` for the debate stage.
+// - **Crucially, updated `PipelineEventDataMap['debate_result_summary']` to include
+//   `fullTranscript: AiChatMessage[];` to ensure the full debate transcript can be
+//   passed to and processed by the frontend.**
+//
