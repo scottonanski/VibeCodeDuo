@@ -1,6 +1,6 @@
 // stores/fileStore.ts
 import { create } from 'zustand';
-import { toast } from 'sonner'; // Added import
+import { toast } from 'sonner';
 
 export interface FileNode {
   path: string;
@@ -11,24 +11,31 @@ export interface FileNode {
 
 export type ProjectFileStructure = Record<string, Pick<FileNode, 'content' | 'type'>>;
 
-interface FileStoreState {
-    files: ProjectFileStructure;
-    createFileOrFolder: (path: string, type: 'file' | 'folder', content?: string) => void;
-    updateFileContent: (path: string, newContent: string) => void;
-    deleteFileOrFolder: (path: string) => void;
-    renameFileOrFolder: (oldPath: string, newPath: string) => void;
-  }
+// Define the state structure
+interface FileStoreStateValues {
+  files: ProjectFileStructure;
+}
 
-export const useFileStore = create<FileStoreState>(
-    (
-      set: (
-        partial:
-          | Partial<FileStoreState>
-          | ((state: FileStoreState) => Partial<FileStoreState>)
-      ) => void,
-      get: () => FileStoreState
-    ) => ({
-      files: {},
+// Define the actions
+interface FileStoreActions {
+  createFileOrFolder: (path: string, type: 'file' | 'folder', content?: string) => void;
+  updateFileContent: (path: string, newContent: string) => void;
+  deleteFileOrFolder: (path: string) => void;
+  renameFileOrFolder: (oldPath: string, newPath: string) => void;
+  resetStore: () => void;
+}
+
+// Combine state and actions for the store type
+export type FileStore = FileStoreStateValues & FileStoreActions;
+
+// Define the initial state
+const initialFileStoreState: FileStoreStateValues = {
+  files: {},
+};
+
+export const useFileStore = create<FileStore>(
+    (set, get) => ({
+      ...initialFileStoreState,
   
       createFileOrFolder: (path, type, content = '') => {
         set((state) => {
@@ -42,15 +49,12 @@ export const useFileStore = create<FileStoreState>(
             if (!newFiles[currentPath]) {
               newFiles[currentPath] = { type: 'folder' };
             } else if (newFiles[currentPath].type === 'file') {
-              // This scenario (creating a file/folder where a file of the same name as a parent path exists)
-              // should ideally be prevented or handled more explicitly.
-              // For now, returning original state to prevent data corruption.
+              toast.error(`Cannot create folder structure, ${currentPath} is a file.`);
               return { files: state.files };
             }
           }
           return { files: newFiles };
         });
-        // 🍞 Toast after successful state update
         const itemName = path.split('/').pop() || path;
         if (type === 'folder') {
           toast.success(`📁 Folder "${itemName}" created`);
@@ -63,8 +67,6 @@ export const useFileStore = create<FileStoreState>(
         set((state) => {
           const newFiles = { ...state.files };
           if (!newFiles[path] || newFiles[path].type === 'folder') {
-            // If path doesn't exist, or is a folder, create it as a file.
-            // This also implicitly creates parent folders if they don't exist.
             newFiles[path] = { type: 'file', content: newContent };
             const parts = path.split('/');
             let currentParentPath = '';
@@ -73,31 +75,28 @@ export const useFileStore = create<FileStoreState>(
               if (!newFiles[currentParentPath]) {
                 newFiles[currentParentPath] = { type: 'folder' };
               } else if (newFiles[currentParentPath].type === 'file') {
-                // Similar to createFileOrFolder, prevent overwriting a file with a folder structure
+                toast.error(`Cannot update file, parent path ${currentParentPath} is a file.`);
                 return { files: state.files };
               }
             }
+            if (!state.files[path]) {
+                 toast.success(`📄 File "${path.split('/').pop() || path}" created with new content.`);
+            }
             return { files: newFiles };
           }
-          // Path exists and is a file, update its content
-          return {
-            files: {
-              ...state.files,
-              [path]: { ...state.files[path], content: newContent },
-            },
-          };
+          newFiles[path] = { ...newFiles[path], content: newContent };
+          return { files: newFiles };
         });
-        // Consider adding a toast here if needed, e.g., toast.success(`💾 Content saved: ${path.split('/').pop()}`);
       },
   
       deleteFileOrFolder: (path) => {
         let itemType: 'file' | 'folder' | undefined;
         const itemName: string = path.split('/').pop() || path;
-        const originalFiles = get().files; // Get files before modification
+        const originalFiles = get().files;
 
         set((state) => {
           const newFiles = { ...state.files };
-          itemType = newFiles[path]?.type; // Get type before deletion
+          itemType = newFiles[path]?.type;
 
           if (itemType === 'file') {
             delete newFiles[path];
@@ -108,14 +107,14 @@ export const useFileStore = create<FileStoreState>(
               }
             });
           } else {
-            // Item not found, no change
+            // Corrected: Used toast.info instead of toast.warn
+            toast.info(`Item "${itemName}" not found for deletion.`);
             return { files: state.files };
           }
           return { files: newFiles };
         });
 
-        // 🍞 Toast after successful state update, only if something was actually deleted
-        if (itemType && originalFiles[path]) { // Check if item existed before trying to toast
+        if (itemType && originalFiles[path]) {
           if (itemType === 'folder') {
             toast.info(`🗑️ Folder "${itemName}" deleted`);
           } else if (itemType === 'file') {
@@ -132,14 +131,14 @@ export const useFileStore = create<FileStoreState>(
         set((state) => {
           const newFiles = { ...state.files };
           const entry = newFiles[oldPath];
-          if (!entry) return { files: state.files }; // Item to rename not found
+          if (!entry) {
+            toast.error(`Item "${oldName}" not found for renaming.`);
+            return { files: state.files };
+          }
 
-          itemType = entry.type; // Capture type
+          itemType = entry.type;
 
-          // Prevent renaming if newPath already exists (basic check)
           if (newFiles[newPath]) {
-            // Or allow overwrite with more complex logic, for now, prevent.
-            console.warn(`Rename failed: Target path "${newPath}" already exists.`);
             toast.error(`⚠️ Rename failed: "${newName}" already exists.`);
             return { files: state.files };
           }
@@ -148,14 +147,19 @@ export const useFileStore = create<FileStoreState>(
           newFiles[newPath] = entry;
 
           if (entry.type === 'folder') {
-            // Find all children of the old folder path and update their paths
-            Object.keys(state.files).forEach(p => { // Iterate over original state.files to find children
+            // Iterate over a copy of keys from original state.files to avoid issues with modification during iteration
+            const originalPaths = Object.keys(state.files);
+            originalPaths.forEach(p => {
               if (p.startsWith(oldPath + '/')) {
-                const relativePath = p.substring(oldPath.length); // e.g., /file.txt or /subfolder/file.txt
+                const relativePath = p.substring(oldPath.length);
                 const updatedChildPath = newPath + relativePath;
-                if (newFiles[p]) { // Ensure the child exists in current processing copy
-                    newFiles[updatedChildPath] = newFiles[p];
-                    delete newFiles[p];
+                // Check if the child actually exists in the 'newFiles' before trying to move it
+                // This is important if 'newFiles' was modified in earlier iterations or if 'p' refers to the old folder itself
+                if (newFiles[p]) { 
+                    newFiles[updatedChildPath] = newFiles[p]; // Assign the entry
+                    if (p !== updatedChildPath) { // Avoid deleting if old and new path are the same (should not happen here)
+                        delete newFiles[p]; // Delete the old entry
+                    }
                 }
               }
             });
@@ -163,24 +167,36 @@ export const useFileStore = create<FileStoreState>(
           return { files: newFiles };
         });
 
-        // 🍞 Toast after successful state update
-        if (itemType) { // Only toast if itemType was determined (i.e., rename was likely successful)
+        if (itemType) {
             toast.success(`${itemType === 'folder' ? '📁 Folder' : '📄 File'} "${oldName}" renamed to "${newName}"`);
         }
+      },
+
+      resetStore: () => {
+        set(initialFileStoreState);
+        toast.info("Project files cleared.");
       },
     })
   );
   
-// ... (buildFileTree function remains unchanged)
 export function buildFileTree(files: ProjectFileStructure): FileNode[] {
   const rootNodes: FileNode[] = [];
   const map: Record<string, FileNode> = {};
-  const sortedPaths = Object.keys(files).sort();
+  const sortedPaths = Object.keys(files).sort((a, b) => {
+    const aParts = a.split('/').length;
+    const bParts = b.split('/').length;
+    if (aParts !== bParts) {
+        return aParts - bParts;
+    }
+    return a.localeCompare(b);
+  });
 
   for (const path of sortedPaths) {
     const parts = path.split('/');
     const nodeName = parts[parts.length - 1];
     const fileData = files[path];
+
+    if (!fileData) continue; 
 
     const newNode: FileNode = {
       path,
@@ -191,18 +207,18 @@ export function buildFileTree(files: ProjectFileStructure): FileNode[] {
     map[path] = newNode;
 
     if (parts.length === 1) {
-      rootNodes.push(newNode);
+      if (!rootNodes.find(rn => rn.path === newNode.path)) {
+        rootNodes.push(newNode);
+      }
     } else {
       const parentPath = parts.slice(0, -1).join('/');
       const parentNode = map[parentPath];
-      if (parentNode?.type === 'folder' && parentNode.children) {
+      if (parentNode && parentNode.type === 'folder' && parentNode.children) {
         parentNode.children[nodeName] = newNode;
       } else {
-        // This case can happen if parent folders are not explicitly created first in a flat list.
-        // Or if a file path implies folders that don't exist as separate entries.
-        // For a robust tree, ensure all parent folder paths exist in 'files'.
-        // console.warn(`Parent node for ${path} not found or not a folder. Adding as root.`);
-        rootNodes.push(newNode);
+        if (!rootNodes.find(rn => rn.path === newNode.path)) {
+          rootNodes.push(newNode);
+        }
       }
     }
   }

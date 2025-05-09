@@ -108,7 +108,7 @@ export async function* reviewStage({
     const parsedReview = parseReviewOutput(fullText);
     
     yield {
-      type: 'review_result',
+      type: 'review_result_internal',
       data: parsedReview,
     };
     

@@ -51,21 +51,26 @@ export interface CollaborationState {
 // Worker types for pipeline-level status updates
 export type PipelineWorker = 'w1' | 'w2' | 'refiner' | 'system';
 
+// --- NEW: Data for assistant_message_complete event ---
+export interface AssistantMessageCompleteData {
+  worker: 'w1' | 'w2' | 'refiner'; // Which worker's message is complete
+  fullText: string;               // The final, full textual content of the AI's message
+  codeExtracted: boolean;         // True if code was extracted and applied from this message
+}
+// --- END NEW ---
+
 // 🔧 EVENT DATA MAPS - For events yielded by the main collaborationPipeline to the frontend/consumer
 export interface PipelineEventDataMap {
   pipeline_start: { initialState: Pick<CollaborationState, 'initialPrompt' | 'maxTurns'> };
   stage_change: { newStage: Stage; message?: string };
   prompt_refined: { refinedPrompt: string };
-  // package_proposed & file_proposed are examples, not currently used by pipeline itself.
-  // Stages might use them internally or yield them if the pipeline is designed to handle them.
-  // package_proposed: { packageName: string };
-  // file_proposed: { filename: string };
   file_create: { path: string; content: string }; // Yielded by pipeline when scaffoldStage produces it
   folder_create: { path: string };               // Yielded by pipeline when scaffoldStage produces it
   file_update: { filename: string; content: string }; // Yielded by pipeline when codegenStage produces it
   status_update: { message: string; worker?: PipelineWorker }; // Worker types for pipeline-level status
   assistant_chunk: { worker: 'w1' | 'w2' | 'refiner'; chunk: string }; // If pipeline re-yields chunks
   assistant_done: { worker: 'w1' | 'w2' | 'refiner' };  // If pipeline re-yields done signals
+  assistant_message_complete: AssistantMessageCompleteData; // <<< NEW EVENT
   pipeline_error: { message: string };
   pipeline_finish: { finalState: Pick<CollaborationState, 'projectFiles' | 'requiredPackages'> };
   review_result: { // This is yielded by the pipeline after processing reviewStage's internal output
@@ -141,11 +146,6 @@ export interface InstallStageParams {
 
 // Worker types for stage-internal status updates. These must be assignable to PipelineWorker if re-yielded directly.
 export type StageInternalWorker = 'w1' | 'w2' | 'refiner' | 'system';
-// If a stage (e.g., installStage) needs to identify itself with a unique worker name like 'installer'
-// in its status updates, and the pipeline re-yields this status update directly,
-// then 'installer' would also need to be part of PipelineWorker.
-// For simplicity, stages should use one of the common StageInternalWorker types for status messages
-// that are intended to be directly re-yielded by the pipeline.
 
 export type StageEventDataMap = {
   // Codegen Stage specific events
@@ -173,16 +173,9 @@ export type StageEventDataMap = {
   // File operations that a stage might emit (e.g., scaffoldStage)
   'file_create': { path: string; content: string };
   'folder_create': { path: string };
-  // Note: 'file_update' is primarily a PipelineEvent, but a stage *could* emit it if it directly modifies files
-  // and the pipeline is set up to handle it from stages. Usually, codegenStage provides content
-  // and the pipeline itself creates the 'file_update' PipelineEvent.
 
   // General events that any stage might emit
   'status_update': { message: string; worker: StageInternalWorker };
-  // 'assistant_chunk' & 'assistant_done' are typically PipelineEvents.
-  // Stages like codegenStage or refineStage would emit their own specific chunk/complete events
-  // (e.g., 'codegen-chunk', 'codegen-complete'). The pipeline then transforms these into
-  // 'assistant_chunk'/'assistant_done' PipelineEvents for the frontend.
 
   // Install Stage specific events
   'install_command': { command: string };

@@ -1,9 +1,9 @@
+// components/ui/settings-panel.tsx
 import React, { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
 // Stubbed model lists
-// OpenAI models remain static
 const OPENAI_MODELS = [
   "gpt-4.1-nano-2025-04-14",
   "gpt-3.5-turbo-0125"
@@ -25,6 +25,7 @@ export interface Settings {
   provider: Provider;
   worker1Model: string;
   worker2Model: string;
+  refinerModel: string; // <<< ADDED
 }
 
 interface SettingsPanelProps {
@@ -38,24 +39,25 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ open, initialSetti
   const [provider, setProvider] = useState<Provider>(initialSettings.provider);
   const [worker1Model, setWorker1Model] = useState<string>(initialSettings.worker1Model);
   const [worker2Model, setWorker2Model] = useState<string>(initialSettings.worker2Model);
+  // Assuming you might want to select a refiner model in the UI eventually.
+  // For now, it's just part of the type. If it needs to be set in the UI, add state for it.
+  // const [refinerModel, setRefinerModel] = useState<string>(initialSettings.refinerModel);
   const [error, setError] = useState<string>("");
 
-  // Dynamic Ollama models state
   const [ollamaModels, setOllamaModels] = useState<string[]>(DEFAULT_OLLAMA_MODELS);
   const [ollamaLoading, setOllamaLoading] = useState(false);
   const [ollamaError, setOllamaError] = useState<string>("");
 
-  // Reset state on open
   useEffect(() => {
     if (open) {
       setProvider(initialSettings.provider);
       setWorker1Model(initialSettings.worker1Model);
       setWorker2Model(initialSettings.worker2Model);
+      // if (initialSettings.refinerModel) setRefinerModel(initialSettings.refinerModel);
       setError("");
     }
   }, [open, initialSettings]);
 
-  // Fetch Ollama models when panel opens and provider is Ollama
   useEffect(() => {
     if (open && provider === "Ollama") {
       setOllamaLoading(true);
@@ -79,10 +81,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ open, initialSetti
     }
   }, [open, provider]);
 
-  // Get current model list
   const modelList = provider === "Ollama" ? ollamaModels : OPENAI_MODELS;
 
-  // Validation logic
   const handleConfirm = () => {
     if (!worker1Model || !worker2Model) {
       setError("Please select models for both workers.");
@@ -93,7 +93,17 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ open, initialSetti
       return;
     }
     setError("");
-    onConfirm({ provider, worker1Model, worker2Model });
+    // For now, we'll pass a default/placeholder refiner model or the initial one if available.
+    // The UI doesn't yet select it. This needs to be decided based on how refinerModel is managed.
+    // If it's fixed, you can hardcode it or derive it. If user-configurable, add UI for it.
+    const currentRefinerModel = initialSettings.refinerModel || OPENAI_MODELS[0]; // Example placeholder
+
+    onConfirm({
+        provider,
+        worker1Model,
+        worker2Model,
+        refinerModel: currentRefinerModel // <<< PASSING A REFINER MODEL
+    });
   };
 
   return (
@@ -102,7 +112,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ open, initialSetti
         <DialogTitle>AI Settings</DialogTitle>
         <h2 className="text-lg font-semibold mb-4">Settings</h2>
 
-        {/* Provider Selection */}
         <div className="mb-4">
           <label className="block mb-1 font-medium">Provider</label>
           <select
@@ -115,7 +124,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ open, initialSetti
           </select>
         </div>
 
-        {/* Worker 1 Model */}
         <div className="mb-4">
           <label className="block mb-1 font-medium">Worker 1 Model</label>
           {provider === "Ollama" && ollamaLoading ? (
@@ -137,7 +145,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ open, initialSetti
           )}
         </div>
 
-        {/* Worker 2 Model */}
         <div className="mb-4">
           <label className="block mb-1 font-medium">Worker 2 Model</label>
           {provider === "Ollama" && ollamaLoading ? (
@@ -159,9 +166,18 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ open, initialSetti
           )}
         </div>
 
+        {/* 
+          Optionally, add UI for selecting Refiner Model here if it's user-configurable:
+          <div className="mb-4">
+            <label className="block mb-1 font-medium">Refiner Model</label>
+            <select ... value={refinerModel} onChange={(e) => setRefinerModel(e.target.value)} ...>
+              {modelList.map((model) => (...))}
+            </select>
+          </div>
+        */}
+
         {error && <div className="text-red-600 mb-2">{error}</div>}
 
-        {/* Buttons */}
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onCancel}>Cancel</Button>
           <Button onClick={handleConfirm}>Confirm</Button>
