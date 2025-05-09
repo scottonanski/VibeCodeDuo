@@ -12,14 +12,14 @@ VibeCodeDuo is engineered to simulate and augment a sophisticated software devel
 
 ### 🔑 Key Principles & How VibeCodeDuo Elevates "Vibe Coding"
 
-*   **Specialized Multi-Agent Collaboration** 🧠🤖
+*   **Specialized Multi-Agent Collaboration with Upfront Planning** 🧠💬🤖
     *   VibeCodeDuo employs a team of AI agents, each with a specific role, mirroring real-world development teams and addressing common "vibe coding" concerns about code quality:
         *   **Refiner Bot:** Ensures precise requirements by clarifying user prompts.
-        *   **✨ (Upcoming) Debate Duo:** Two AI agents (e.g., ChatGPT & Gemini) will engage in critical discussions and propose/critique high-level implementation plans *before* coding, proactively mitigating issues like technical debt.
-        *   **Scaffolder AI:** Generates initial project file/folder structures based on agreed plans, providing a solid foundation.
-        *   **Coder Bot (Worker 1):** Focuses on iterative code generation.
+        *   **✨ Debate Duo (Debater A & Debater B, Summarizer):** Two AI agents (currently configurable to use Worker 1 & Worker 2 models) engage in critical discussions to propose and critique high-level implementation plans *before* any scaffolding or coding begins. A Summarizer AI then distills this debate into an `agreedPlan`, options, and identifies if further resolution is needed. This proactive planning mitigates issues like technical debt and improves architectural soundness.
+        *   **Scaffolder AI:** Generates initial project file/folder structures based on the `agreedPlan` from the Debate Stage, providing a solid foundation.
+        *   **Coder Bot (Worker 1):** Focuses on iterative code generation based on the refined plan.
         *   **Reviewer Bot (Worker 2):** Conducts structured code reviews, identifying issues and ensuring alignment with best practices.
-    *   This turn-based, role-specific approach differentiates VibeCodeDuo from single-agent generation tools, promoting higher quality and more maintainable code.
+    *   This turn-based, role-specific approach, now featuring a dedicated debate/planning phase, differentiates VibeCodeDuo from single-agent generation tools, promoting higher quality and more maintainable code.
 
 *   **Stateful & Event-Driven Pipeline** 🌱🔄
     *   The backend orchestrator (`collaborationPipeline.ts`) manages the entire project lifecycle—tracking files (`projectFiles`), dependencies (`requiredPackages`), conversation history, and dynamically adjusting workflow based on AI feedback. This statefulness addresses context window limitations common in simpler AI coding tools.
@@ -35,26 +35,33 @@ VibeCodeDuo is engineered to simulate and augment a sophisticated software devel
 
 ---
 
-## 🔥 Current Status & Achievements (feature/debate-stage-chat-visibility Branch)
+## 🔥 Current Status & Achievements (feature/debate-stage-implementation Branch)
 
 ### 🔧 Backend (`/lib/orchestration/`, `/api/chat/route.ts`)
 
-*   **✅ Fully Functional Orchestration Pipeline:**
-    *   **✨ `scaffoldStage` Integration:** Initiates projects by scaffolding file/folder structures based on LLM-generated JSON, significantly speeding up project setup.
-    *   Robust turn-based loop: Refiner ➔ Scaffolder ➔ Coder ➔ Reviewer ➔ Revisions ➔ Installer.
+*   **✅ Fully Functional Orchestration Pipeline with Integrated Debate Stage:**
+    *   **✨ `debateStage` Implementation & Integration:**
+        *   Successfully implemented `debateStage.ts` where Debater A (Worker 1 config) and Debater B (Worker 2 config) discuss and refine implementation plans based on the `refinedPrompt`.
+        *   A Summarizer AI (Refiner config) processes the debate into a structured JSON output: `summaryText`, `agreedPlan`, `options`, and `requiresResolution`.
+        *   The `debateStage` is now integrated into `collaborationPipeline.ts`, running after `refineStage` and critically, *before* `scaffoldStage`.
+    *   **✨ `scaffoldStage` Driven by Debate Outcome:** The `agreedPlan` (or `refinedPrompt` as fallback) from the `debateStage` is now the primary input for `scaffoldStage`, ensuring the project scaffold aligns with the collaboratively decided plan.
+    *   Robust turn-based loop: Refiner ➔ **Debate (Proposer, Critiquer, Summarizer)** ➔ Scaffolder ➔ Coder ➔ Reviewer ➔ Revisions ➔ Installer.
     *   Intelligent review processing and dependency management (`installStage`).
 *   **✅ Advanced LLM Service & JSON Parsing:**
-    *   Resilient `extractJsonString` and `parseReviewOutput` (with `cleanJsonStringBeforeParse`) handle diverse LLM outputs, ensuring reliable structured data processing.
+    *   Resilient `extractJsonString` (used by `debateStage` and `scaffoldStage`) and `parseReviewOutput` handle diverse LLM outputs, ensuring reliable structured data processing.
 *   **✅ Real-Time Streaming (SSE) & Stateful Context Management.**
 
 ---
 
 ### 🌐 Frontend (`/hooks/useBuildStream.ts`, `/components/ui/BuildInterface.tsx`, Zustand Stores)
 
-*   **✨ Core "Vibe Coding" Enhancement: Full Chat Transparency:**
-    *   **Complete AI Output Displayed:** AI chat bubbles show full explanations, raw JSON, or complete code blocks.
+*   **✨ Core "Vibe Coding" Enhancement: Full Chat Transparency & Debate Visibility:**
+    *   **Complete AI Output Displayed:** AI chat bubbles show full explanations, raw JSON, or complete code blocks from all agents, including Debater A, Debater B, and the Summarizer.
+    *   **Dedicated Debate Outcome Panel:** The UI now features a distinct section displaying the `debateSummaryText`, `agreedPlan`, `options`, and `requiresResolution` status, making the planning phase fully transparent.
     *   **"Code Applied" Indicator:** Visually confirms when AI-generated code is active in the editor.
 *   **✅ Dynamic & Interactive UI:**
+    *   `useBuildStream.ts` hook updated to process and manage new debate-related `PipelineEvents`.
+    *   `BuildInterface.tsx` updated with new sender metadata and UI elements for the debate stage.
     *   Real-time file tree updates (from `scaffoldStage` & codegen).
     *   Multi-tab Monaco editor for project files.
     *   Syntax highlighting for all code (in editor and chat).
@@ -77,9 +84,16 @@ VibeCodeDuo is engineered to simulate and augment a sophisticated software devel
 
 ## 🗺️ Roadmap & Next Steps
 
-### 💬 **Current Focus: `debateStage.ts`**
-*   **Goal:** Introduce a pre-coding planning phase where AI agents debate implementation strategies. This directly addresses a key aspect of robust software design often missing in rapid AI generation, aiming to improve architectural soundness.
-*   **UI:** Ensure clear differentiation of AI perspectives during debates.
+### ✅ **Recently Completed: `debateStage.ts` Integration (feature/debate-stage-implementation)**
+*   **Achievement:** Successfully introduced and integrated a pre-coding planning phase (`debateStage.ts`) where AI agents (Debater A, Debater B, Summarizer) collaboratively discuss, critique, and refine implementation strategies. The `agreedPlan` from this stage now directly informs the `scaffoldStage`.
+*   **Impact:** Significantly enhances upfront planning, aiming for improved architectural soundness and addressing a key aspect of robust software design.
+*   **UI Visibility:** The debate process and its outcomes are now fully visible in the frontend interface.
+
+### 🎈 Near-Term (Improving the Core "Vibe")
+*   **Enhanced User Interaction:** Allow users to pause, provide feedback, or guide the AI mid-pipeline more effectively (e.g., during the debate if `requiresResolution` is true).
+*   **User Customization:** Implement UI for per-role prompt control, allowing users to fine-tune AI behavior (e.g., reviewer strictness, coder verbosity, debater personas).
+*   **Refine Scaffolding & Codegen from Debate:** Further optimize how `scaffoldStage` and `codegenStage` utilize the `agreedPlan` and `options` from the debate, especially for multi-file projects.
+*   Address any minor UI warnings and continue refining LLM prompts for all stages.
 
 ### 🎈 Near-Term (Improving the Core "Vibe")
 *   **Enhanced User Interaction:** Allow users to pause, provide feedback, or guide the AI mid-pipeline more effectively.
