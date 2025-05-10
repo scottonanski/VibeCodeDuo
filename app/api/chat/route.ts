@@ -66,7 +66,8 @@ export async function POST(req: NextRequest) {
 
                 function sendSseFormattedEvent(eventType: string, dataObject: any) {
                     const dataString = JSON.stringify(dataObject);
-                    if (eventType !== 'assistant_chunk') {
+                    // Skip logging for chunk-level events to reduce log noise
+                    if (eventType !== 'assistant_chunk' && eventType !== 'debate_summary_chunk' && !eventType.endsWith('_chunk')) {
                         console.log(`[API Route] Sending SSE - event: ${eventType}, data: ${dataString}`);
                     }
                     try {

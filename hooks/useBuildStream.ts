@@ -1,19 +1,18 @@
 // hooks/useBuildStream.ts
-import { useEffect, useReducer, useRef, useCallback } from "react";
+import React, { useEffect, useReducer, useRef, useCallback } from "react"; // useMemo removed as it's not needed
 import type {
   PipelineEvent,
   AssistantMessageCompleteData,
-  AiChatMessage, // <<< IMPORTED for debateFullTranscript
-  PipelineEventDataMap // <<< IMPORTED for stricter payload typing
+  AiChatMessage,
+  PipelineEventDataMap
 } from "@/lib/orchestration/stages/types";
 import { useFileStore } from '@/stores/fileStore';
 
-// Helper to generate a simple unique ID
 const generateUniqueId = (): string => `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 9)}`;
 
 export interface BuildStreamMessage {
   id: string;
-  sender: string; // Includes 'user', 'w1', 'w2', 'refiner', 'debaterA', 'debaterB', 'summarizer', 'system'
+  sender: string;
   content: string;
   isDone?: boolean;
   parsedReview?: {
@@ -23,7 +22,7 @@ export interface BuildStreamMessage {
   };
   hasCodeArtifact?: boolean;
   error?: string;
-  turn?: number; // For debate messages to distinguish turns if needed
+  turn?: number;
 }
 
 interface BuildStreamState {
@@ -35,13 +34,12 @@ interface BuildStreamState {
   error: string | null;
   isFinished: boolean;
   requiredInstalls: string[];
-
-  // --- Debate Stage Specific State ---
   debateSummaryText: string | null;
-  debateFullTranscript: AiChatMessage[]; // Stores the AiChatMessage objects from the debate
+  debateFullTranscript: AiChatMessage[];
   debateAgreedPlan: string | null;
   debateOptions: string[] | null;
   debateRequiresResolution: boolean | null;
+  shouldResetFiles?: boolean; // Flag for effect-based reset
 }
 
 const initialState: BuildStreamState = {
@@ -53,18 +51,17 @@ const initialState: BuildStreamState = {
   error: null,
   isFinished: false,
   requiredInstalls: [],
-
-  // --- Debate Stage Initial State ---
   debateSummaryText: null,
   debateFullTranscript: [],
   debateAgreedPlan: null,
   debateOptions: null,
   debateRequiresResolution: null,
+  shouldResetFiles: false, // Initialize the flag
 };
 
 type Action =
   | { type: "APPEND_ASSISTANT_CHUNK"; payload: { worker: string; chunk: string } }
-  | { type: "MARK_ASSISTANT_DONE"; payload: { worker: string } } // Still used as a signal, but full processing in next action
+  | { type: "MARK_ASSISTANT_DONE"; payload: { worker: string } }
   | { type: "PROCESS_ASSISTANT_MESSAGE_COMPLETE"; payload: AssistantMessageCompleteData }
   | { type: "UPDATE_FILE"; payload: { filename: string; content: string } }
   | { type: "SET_STAGE"; payload: string }
@@ -74,14 +71,14 @@ type Action =
   | { type: "SET_MESSAGE_ERROR"; payload: { messageId: string; errorMessage: string } }
   | { type: "SET_FINISHED" }
   | { type: "RESET" }
+  | { type: "FILES_RESET_DONE" } // New action to clear the flag
   | { type: "ATTACH_PARSED_REVIEW"; payload: { parsed: NonNullable<BuildStreamMessage['parsedReview']> } }
   | { type: "ADD_INSTALL_COMMAND"; payload: { command: string } }
   | { type: "SET_INSTALL_SUMMARY"; payload: { commands: string[] } }
-  // --- Debate Actions ---
   | { type: "PROCESS_DEBATE_AGENT_CHUNK"; payload: PipelineEventDataMap['debate_agent_chunk'] }
   | { type: "PROCESS_DEBATE_AGENT_MESSAGE_COMPLETE"; payload: PipelineEventDataMap['debate_agent_message_complete'] }
-  | { type: "PROCESS_DEBATE_SUMMARY_CHUNK"; payload: { agent: 'summarizer', chunk: string } } // Payload adjusted to match PipelineEvent
-  | { type: "PROCESS_DEBATE_RESULT_SUMMARY"; payload: PipelineEventDataMap['debate_result_summary'] & { fullTranscript: AiChatMessage[] } }; // Include fullTranscript if needed by UI messages
+  | { type: "PROCESS_DEBATE_SUMMARY_CHUNK"; payload: { agent: 'summarizer', chunk: string } }
+  | { type: "PROCESS_DEBATE_RESULT_SUMMARY"; payload: PipelineEventDataMap['debate_result_summary'] & { fullTranscript?: AiChatMessage[] } };
 
 function buildStreamReducer(state: BuildStreamState, action: Action): BuildStreamState {
   switch (action.type) {
@@ -107,37 +104,31 @@ function buildStreamReducer(state: BuildStreamState, action: Action): BuildStrea
               sender: worker,
               content: chunk,
               isDone: false,
-              hasCodeArtifact: false, // Default for new messages
+              hasCodeArtifact: false,
             },
           ],
         };
       }
     }
     case "MARK_ASSISTANT_DONE": {
-      // This action can still be a signal if other logic depends on it,
-      // but PROCESS_ASSISTANT_MESSAGE_COMPLETE handles the final state update for the message.
-      // console.log(`[BuildStreamReducer] MARK_ASSISTANT_DONE received for ${action.payload.worker}. Waiting for PROCESS_ASSISTANT_MESSAGE_COMPLETE.`);
       return state;
     }
     case "PROCESS_ASSISTANT_MESSAGE_COMPLETE": {
         const { worker, fullText, codeExtracted } = action.payload;
-        // Find the last message by this worker, assuming it might have been created by APPEND_ASSISTANT_CHUNK
         const lastIdx = state.messages.findLastIndex(
-            (msg) => msg.sender === worker // Could also check !msg.isDone if chunks always precede
+            (msg) => msg.sender === worker
         );
 
         if (lastIdx !== -1) {
             const newMessages = [...state.messages];
             newMessages[lastIdx] = {
                 ...newMessages[lastIdx],
-                content: fullText, // Ensure full text is updated
+                content: fullText,
                 isDone: true,
-                hasCodeArtifact: codeExtracted, // Set code artifact status
+                hasCodeArtifact: codeExtracted,
             };
             return { ...state, messages: newMessages };
         } else {
-            // If no prior chunk message, create a new completed message
-            // This can happen for refiner, or if a worker responds without streaming chunks
             return {
                 ...state,
                 messages: [
@@ -165,11 +156,12 @@ function buildStreamReducer(state: BuildStreamState, action: Action): BuildStrea
         };
     }
     case "RESET":
-      useFileStore.getState().resetStore();
-      return initialState;
+      return { ...initialState, shouldResetFiles: true }; // Keep other initial state fields, set flag
+    case "FILES_RESET_DONE": // New case to clear the flag
+      return { ...state, shouldResetFiles: false };
     case "ATTACH_PARSED_REVIEW": {
         const lastWorker2MsgIndex = state.messages.findLastIndex(
-            (msg) => msg.sender === "w2" && msg.isDone // Ensure it's the completed message
+            (msg) => msg.sender === "w2" && msg.isDone
         );
         if (lastWorker2MsgIndex === -1) return state;
         const newMessages = [...state.messages];
@@ -186,7 +178,11 @@ function buildStreamReducer(state: BuildStreamState, action: Action): BuildStrea
     case "SET_STATUS":
       return { ...state, statusMessage: action.payload };
     case "SET_PROMPT":
-      return { ...state, refinedPrompt: action.payload };
+    //   console.log('[buildStreamReducer] SET_PROMPT - Before update:', { currentPrompt: state.refinedPrompt });
+    //   console.log('[buildStreamReducer] SET_PROMPT - New value:', action.payload);
+      const updatedState = { ...state, refinedPrompt: action.payload };
+    //   console.log('[buildStreamReducer] SET_PROMPT - After update:', { updatedPrompt: updatedState.refinedPrompt });
+      return updatedState;
     case "SET_FINISHED":
       return { ...state, isFinished: true };
     case "ADD_INSTALL_COMMAND":
@@ -196,12 +192,8 @@ function buildStreamReducer(state: BuildStreamState, action: Action): BuildStrea
       return state;
     case "SET_INSTALL_SUMMARY":
       return { ...state, requiredInstalls: action.payload.commands, };
-
-    // --- Debate Reducer Logic ---
     case "PROCESS_DEBATE_AGENT_CHUNK": {
       const { agent, chunk } = action.payload;
-      // Find the last message from this agent for the current turn (if applicable, or just last overall)
-      // For simplicity, let's find the last non-done message by this agent.
       const lastIdx = state.messages.findLastIndex(
         (msg) => msg.sender === agent && !msg.isDone
       );
@@ -213,7 +205,6 @@ function buildStreamReducer(state: BuildStreamState, action: Action): BuildStrea
         };
         return { ...state, messages: newMessages };
       } else {
-        // Create new message for this agent's turn
         return {
           ...state,
           messages: [
@@ -223,7 +214,7 @@ function buildStreamReducer(state: BuildStreamState, action: Action): BuildStrea
               sender: agent,
               content: chunk,
               isDone: false,
-              turn: undefined, // Will be set by PROCESS_DEBATE_AGENT_MESSAGE_COMPLETE if needed
+              turn: undefined,
             },
           ],
         };
@@ -232,7 +223,7 @@ function buildStreamReducer(state: BuildStreamState, action: Action): BuildStrea
     case "PROCESS_DEBATE_AGENT_MESSAGE_COMPLETE": {
       const { agent, fullText, turn } = action.payload;
       const lastIdx = state.messages.findLastIndex(
-        (msg) => msg.sender === agent // Assuming chunks created the message, or it's a new one
+        (msg) => msg.sender === agent
       );
       if (lastIdx !== -1) {
         const newMessages = [...state.messages];
@@ -244,7 +235,6 @@ function buildStreamReducer(state: BuildStreamState, action: Action): BuildStrea
         };
         return { ...state, messages: newMessages };
       } else {
-        // If no prior chunk message for this agent (e.g., if agent responds non-streamed)
         return {
           ...state,
           messages: [
@@ -261,7 +251,7 @@ function buildStreamReducer(state: BuildStreamState, action: Action): BuildStrea
       }
     }
     case "PROCESS_DEBATE_SUMMARY_CHUNK": {
-      const { agent, chunk } = action.payload; // agent will be 'summarizer'
+      const { agent, chunk } = action.payload;
       const lastIdx = state.messages.findLastIndex(
         (msg) => msg.sender === agent && !msg.isDone
       );
@@ -288,8 +278,12 @@ function buildStreamReducer(state: BuildStreamState, action: Action): BuildStrea
       }
     }
     case "PROCESS_DEBATE_RESULT_SUMMARY": {
+    //   console.log('[buildStreamReducer] PROCESS_DEBATE_RESULT_SUMMARY - Before update:', {
+    //     currentSummary: state.debateSummaryText,
+    //     currentPlan: state.debateAgreedPlan
+    //   });
+    //   console.log('[buildStreamReducer] PROCESS_DEBATE_RESULT_SUMMARY payload:', action.payload);
       const { summaryText, agreedPlan, options, requiresResolution, fullTranscript } = action.payload;
-      // Update the last summarizer message
       const lastSummarizerIdx = state.messages.findLastIndex(
         (msg) => msg.sender === 'summarizer'
       );
@@ -301,7 +295,6 @@ function buildStreamReducer(state: BuildStreamState, action: Action): BuildStrea
           isDone: true,
         };
       } else {
-        // If no prior chunk message for summarizer
         newMessages.push({
           id: generateUniqueId(),
           sender: 'summarizer',
@@ -309,15 +302,14 @@ function buildStreamReducer(state: BuildStreamState, action: Action): BuildStrea
           isDone: true,
         });
       }
-
       return {
         ...state,
         messages: newMessages,
         debateSummaryText: summaryText,
-        debateAgreedPlan: agreedPlan || null, // Ensure null if undefined
-        debateOptions: options || null,     // Ensure null if undefined
+        debateAgreedPlan: agreedPlan || null,
+        debateOptions: options || null,
         debateRequiresResolution: requiresResolution,
-        debateFullTranscript: fullTranscript || [], // Ensure array
+        debateFullTranscript: fullTranscript || [],
       };
     }
     default:
@@ -325,34 +317,70 @@ function buildStreamReducer(state: BuildStreamState, action: Action): BuildStrea
   }
 }
 
-export function useBuildStream(isSendingRef: React.MutableRefObject<boolean>) {
+export function useBuildStream(pageLevelIsSendingRef: React.MutableRefObject<boolean>) {
   const [state, dispatch] = useReducer(buildStreamReducer, initialState);
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  // Effect for resetting files (this pattern is generally okay)
+  useEffect(() => {
+    if (state.shouldResetFiles) {
+      console.log('[useBuildStream] Resetting file store via effect');
+      useFileStore.getState().resetStore();
+      dispatch({ type: "FILES_RESET_DONE" });
+    }
+  }, [state.shouldResetFiles]); // Only depends on the flag
+
+  // Logging effect - simplified to reduce potential issues
+  const prevStateRef = useRef<BuildStreamState>(initialState);
+  useEffect(() => {
+    const hasRefinedPromptChanged = state.refinedPrompt !== prevStateRef.current.refinedPrompt;
+    const hasDebateSummaryChanged = state.debateSummaryText !== prevStateRef.current.debateSummaryText;
+    const hasPlanChanged = state.debateAgreedPlan !== prevStateRef.current.debateAgreedPlan;
+    
+    if (hasRefinedPromptChanged || hasDebateSummaryChanged || hasPlanChanged) {
+      console.log('[useBuildStream] Important state updated:', {
+        refinedPromptLength: state.refinedPrompt?.length || 0,
+        debateSummaryLength: state.debateSummaryText?.length || 0, 
+        planLength: state.debateAgreedPlan?.length || 0,
+        timestamp: Date.now()
+      });
+      prevStateRef.current = {...state};
+    }
+  }, [state.refinedPrompt, state.debateSummaryText, state.debateAgreedPlan]);
+  // `dispatch` is stable, `pageLevelIsSendingRef` is stable (it's a ref object)
   const prepareForNewStream = useCallback(() => {
     dispatch({ type: "RESET" });
-    if (isSendingRef.current) {
-        isSendingRef.current = false;
-    }
-  }, [isSendingRef]);
+    // Let startStream manage pageLevelIsSendingRef.current
+  }, []);
 
   const startStream = useCallback(async (payload: any) => {
+    // 1. Abort any existing stream AND clear its ref immediately
     if (abortControllerRef.current) {
+      console.log('[useBuildStream] startStream: Aborting previous stream.');
       abortControllerRef.current.abort();
     }
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
+    // 2. Create a new controller for THIS stream attempt
+    const currentStreamAbortController = new AbortController();
+    abortControllerRef.current = currentStreamAbortController;
 
+    // 3. Reset state and signal start
     prepareForNewStream();
-    if (isSendingRef.current !== undefined) isSendingRef.current = true; // Mark as sending
+    pageLevelIsSendingRef.current = true;
+    dispatch({ type: 'SET_STAGE', payload: 'initiating_stream' }); // Optional: an early stage update
 
     try {
+      console.log('[useBuildStream] startStream: Fetching /api/chat');
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-        signal: abortController.signal,
+        signal: currentStreamAbortController.signal,
       });
+
+      if (currentStreamAbortController.signal.aborted) {
+        console.log('[useBuildStream] startStream: Fetch aborted before response processing.');
+        throw new DOMException('Aborted by user or new stream', 'AbortError');
+      }
 
       if (!response.ok) {
         let errorData;
@@ -362,37 +390,45 @@ export function useBuildStream(isSendingRef: React.MutableRefObject<boolean>) {
       }
 
       if (!response.body) throw new Error("No response body");
+      console.log('[useBuildStream] startStream: Stream connected, reading data.');
 
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
       let buffer = "";
 
       while (true) {
+        if (currentStreamAbortController.signal.aborted) {
+          console.log('[useBuildStream] startStream: Reading loop aborted.');
+          break;
+        }
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          console.log('[useBuildStream] startStream: Stream finished (reader done).');
+          break;
+        }
         buffer += value;
         let sep;
         while ((sep = buffer.indexOf("\n\n")) >= 0) {
+          if (currentStreamAbortController.signal.aborted) break;
           const messageBlock = buffer.slice(0, sep);
           buffer = buffer.slice(sep + 2);
           if (!messageBlock.trim()) continue;
-
+          if (currentStreamAbortController.signal.aborted) break;
           let eventType: string | null = null;
           let eventData = "";
           for (const line of messageBlock.split("\n")) {
             if (line.startsWith("event:")) eventType = line.slice(6).trim();
-            else if (line.startsWith("data:")) eventData += line.slice(5).trim(); // Accumulate multi-line data
+            else if (line.startsWith("data:")) eventData += line.slice(5).trim();
           }
-
           if (!eventType) continue;
           let parsed: PipelineEvent | null = null;
           try {
-            // Ensure data is treated as a single JSON string, even if it spanned multiple "data:" lines
             parsed = { type: eventType, data: JSON.parse(eventData || '{}') } as PipelineEvent;
+          } catch (e) {
+            console.error("[useBuildStream] Failed to parse event data:", eventData, "Error:", e);
+            continue;
           }
-          catch (e) { console.error("Failed to parse event data:", eventData, "Error:", e); continue; }
-
           if (!parsed) continue;
-
+          if (currentStreamAbortController.signal.aborted) break;
           switch (parsed.type) {
             case "pipeline_start": break;
             case "stage_change":
@@ -423,17 +459,15 @@ export function useBuildStream(isSendingRef: React.MutableRefObject<boolean>) {
               dispatch({ type: "MARK_ASSISTANT_DONE", payload: { worker: parsed.data.worker as string } });
               break;
             case "assistant_message_complete":
-                dispatch({ type: "PROCESS_ASSISTANT_MESSAGE_COMPLETE", payload: parsed.data as AssistantMessageCompleteData });
-                break;
+              dispatch({ type: "PROCESS_ASSISTANT_MESSAGE_COMPLETE", payload: parsed.data as AssistantMessageCompleteData });
+              break;
             case "pipeline_error":
               dispatch({ type: "SET_ERROR", payload: parsed.data.message });
               break;
             case "pipeline_finish":
               dispatch({ type: "SET_FINISHED" });
-              if (isSendingRef.current !== undefined) isSendingRef.current = false;
               break;
             case "review_result":
-              // Type assertion for parsed.data to match expected structure
               dispatch({ type: "ATTACH_PARSED_REVIEW", payload: { parsed: parsed.data as NonNullable<BuildStreamMessage['parsedReview']> } });
               break;
             case "install_command_found":
@@ -442,8 +476,6 @@ export function useBuildStream(isSendingRef: React.MutableRefObject<boolean>) {
             case "install_summary":
               dispatch({ type: "SET_INSTALL_SUMMARY", payload: { commands: parsed.data.commands }});
               break;
-
-            // --- Debate Event Handling ---
             case "debate_agent_chunk":
               dispatch({ type: "PROCESS_DEBATE_AGENT_CHUNK", payload: parsed.data });
               break;
@@ -451,83 +483,90 @@ export function useBuildStream(isSendingRef: React.MutableRefObject<boolean>) {
               dispatch({ type: "PROCESS_DEBATE_AGENT_MESSAGE_COMPLETE", payload: parsed.data });
               break;
             case "debate_summary_chunk":
-              // The PipelineEvent 'debate_summary_chunk' has { agent: 'summarizer', chunk: string }
-              // The reducer action 'PROCESS_DEBATE_SUMMARY_CHUNK' expects this.
               dispatch({ type: "PROCESS_DEBATE_SUMMARY_CHUNK", payload: parsed.data });
               break;
             case "debate_result_summary":
-              // Add fullTranscript here if debateStage sends it and reducer needs it
-              // For now, assuming PipelineEventDataMap['debate_result_summary'] is sufficient
-              // and fullTranscript is handled by the reducer when it updates debateFullTranscript state.
-              // The reducer for PROCESS_DEBATE_RESULT_SUMMARY expects fullTranscript.
-              // If debateStage doesn't send it in the PipelineEvent, we'd need to adjust.
-              // Our debateStage *does* send fullTranscript in its *StageEvent*.
-              // The collaborationPipeline re-yields debate_result_summary *without* fullTranscript.
-              // Let's assume the fullTranscript on the BuildStreamState is populated from another source or isn't needed by messages.
-              // For now, let's pass what the pipeline event provides.
-              // The reducer action was defined to accept it in the payload.
-              // Let's ensure the `PipelineEventDataMap` for `debate_result_summary` type *includes* `fullTranscript` if the reducer needs it.
-              // Based on types.ts: `PipelineEventDataMap['debate_result_summary']` does NOT include `fullTranscript`.
-              // However, our `debateStage.ts` *StageEvent* `debate_result_summary` *does* include `fullTranscript`.
-              // The pipeline should pass this through.
-              // --> CORRECTING THIS: The pipeline *should* pass `fullTranscript`. The plan was to make it visible.
-              // --> The `PipelineEventDataMap` for `debate_result_summary` in `types.ts`
-              //     currently is: { summaryText, agreedPlan, options, requiresResolution }.
-              //     This needs to be updated in `types.ts` if `fullTranscript` is to be passed via this event.
-              // For now, I'll assume `types.ts` will be updated. If not, this dispatch needs adjustment.
-              // Assuming types.ts IS updated to include fullTranscript in the PipelineEvent for debate_result_summary
               dispatch({
-                  type: "PROCESS_DEBATE_RESULT_SUMMARY",
-                  // Casting because PipelineEventDataMap['debate_result_summary'] might not yet have fullTranscript
-                  payload: parsed.data as PipelineEventDataMap['debate_result_summary'] & { fullTranscript?: AiChatMessage[] }
+                type: "PROCESS_DEBATE_RESULT_SUMMARY",
+                payload: parsed.data as PipelineEventDataMap['debate_result_summary'] & { fullTranscript?: AiChatMessage[] }
               });
               break;
-
             default:
-              // console.warn("[useBuildStream] Unhandled event type:", (parsed as any).type, parsed);
               break;
           }
         }
+        if (currentStreamAbortController.signal.aborted && sep === undefined) break;
       }
     } catch (error: any) {
-      if (error.name === 'AbortError') {
-        dispatch({ type: "SET_ERROR", payload: 'Interrupted by user' });
+      if (currentStreamAbortController.signal.aborted || error.name === 'AbortError') {
+        console.log('[useBuildStream] startStream: Stream operation aborted.', error.message);
+        if (abortControllerRef.current === currentStreamAbortController) {
+          dispatch({ type: "SET_ERROR", payload: 'Stream interrupted.' });
+        }
       } else {
-        dispatch({ type: "SET_ERROR", payload: error.message || "Unknown stream error" });
+        console.error('[useBuildStream] startStream: Stream error:', error);
+        if (abortControllerRef.current === currentStreamAbortController) {
+          dispatch({ type: "SET_ERROR", payload: error.message || "Unknown stream error" });
+        }
       }
-      if (isSendingRef.current !== undefined) isSendingRef.current = false;
     } finally {
-        if (abortControllerRef.current && abortControllerRef.current.signal === abortController.signal) {
-             abortControllerRef.current = null;
-        }
-        // Ensure isSendingRef is false if stream ends for any reason other than explicit stop by user UI
-        // (which should also set isSendingRef.current = false)
-        if (isSendingRef.current !== undefined && state.isFinished) {
-            isSendingRef.current = false;
-        }
+      console.log('[useBuildStream] startStream: Finally block executing.');
+      if (abortControllerRef.current === currentStreamAbortController) {
+        pageLevelIsSendingRef.current = false;
+        abortControllerRef.current = null;
+        console.log('[useBuildStream] startStream: Active stream instance concluded. pageLevelIsSendingRef set to false, abortControllerRef cleared.');
+      } else {
+        console.log('[useBuildStream] startStream: Old stream instance finally block, but a newer stream is active. Refs not changed by this instance.');
+      }
     }
-  }, [prepareForNewStream, isSendingRef, state.isFinished]); // Added state.isFinished to deps for finally block
+  }, [prepareForNewStream]);
 
   const stopStream = useCallback(() => {
+    console.log('[useBuildStream] stopStream CALLED. Current abortControllerRef:', abortControllerRef.current);
+    console.trace('[useBuildStream] stopStream trace');
     if (abortControllerRef.current) {
+      console.log('[useBuildStream] stopStream: Aborting current stream.');
       abortControllerRef.current.abort();
-      // isSendingRef.current should be set to false in the startStream's catch/finally for AbortError
+    } else {
+      console.log('[useBuildStream] stopStream: No active stream to stop.');
+      pageLevelIsSendingRef.current = false;
     }
   }, []);
 
   useEffect(() => {
     return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
+      const controllerToCleanUp = abortControllerRef.current;
+      console.log('[useBuildStream] Unmount cleanup effect RUNNING. Controller to clean:', controllerToCleanUp);
+      console.trace('[useBuildStream] Unmount cleanup trace');
+      if (controllerToCleanUp) {
+        controllerToCleanUp.abort();
       }
+      pageLevelIsSendingRef.current = false;
+      abortControllerRef.current = null;
     };
   }, []);
 
+  // isStreaming is now purely derived from state and the ref
+  // pageLevelIsSendingRef.current gives an immediate view of intent to stream or active stream.
+  const isStreaming = pageLevelIsSendingRef.current && !state.isFinished && !state.error;
+
   return {
-    ...state,
+    messages: state.messages,
+    projectFiles: state.projectFiles,
+    requiredInstalls: state.requiredInstalls,
+    pipelineStage: state.pipelineStage,
+    statusMessage: state.statusMessage,
+    refinedPrompt: state.refinedPrompt,
+    error: state.error,
+    isFinished: state.isFinished,
+    debateSummaryText: state.debateSummaryText,
+    debateFullTranscript: state.debateFullTranscript,
+    debateAgreedPlan: state.debateAgreedPlan,
+    debateOptions: state.debateOptions,
+    debateRequiresResolution: state.debateRequiresResolution,
     startStream,
     stopStream,
-    isStreaming: (isSendingRef.current || false) || (!state.isFinished && state.pipelineStage !== null && !state.error),
+    isStreaming,
   };
 }
 
