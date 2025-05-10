@@ -1,5 +1,5 @@
 // components/ui/build-interface.tsx
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react'; // Removed useRef, useEffect as they are no longer used directly here
 import ReactMarkdown from 'react-markdown';
 import { Virtuoso } from 'react-virtuoso';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -36,7 +36,6 @@ interface BuildInterfaceProps {
   isStreaming: boolean;
   startStream: (payload: any) => Promise<void>;
   stopStream: () => void;
-  // No projectFiles, refinedPrompt, etc. here, as ProjectInfoPanel handles them
 }
 
 export function BuildInterface({
@@ -66,16 +65,13 @@ export function BuildInterface({
       toast.error("AI provider settings are not configured. Please check settings.");
       return;
     }
-
     const initialUserMessage: AiChatMessage = { role: 'user', content: input.trim() };
-
     const payload = {
       messages: [initialUserMessage],
       worker1: { provider: settings.provider, model: settings.worker1Model },
       worker2: { provider: settings.provider, model: settings.worker2Model },
       refiner: { provider: settings.provider, model: settings.refinerModel } 
     };
-
     try {
       await startStream(payload);
       setInput('');
@@ -107,12 +103,13 @@ export function BuildInterface({
     return meta;
   };
 
-  const renderMessage = (currentMsgData: DisplayMessage, idx: number) => {
+  // renderMessage function is defined once, outside any loops
+  const renderMessage = (currentMsgData: DisplayMessage, idx: number) => { // Added idx parameter
     const meta = getSenderMeta(currentMsgData.sender, currentMsgData.error);
     
     return (
-      
-      // Start of Message Bubbles
+      // Your existing message bubble structure.
+      // You had added mb-10 and max-w-[90%] here, I've kept them.
       <div key={currentMsgData.id} className={cn('flex items-start gap-3', meta.alignment)}>
         {currentMsgData.sender !== 'user' && (
           <Avatar className="w-8 h-8 border shadow-sm flex-shrink-0">
@@ -121,23 +118,16 @@ export function BuildInterface({
             </AvatarFallback>
           </Avatar>
         )}
-  
-        {/* Start of Message Content */}
         <div className={cn('relative rounded-lg p-3 text-sm max-w-[90%] shadow-sm break-words mb-10', meta.bubbleClass)}>
           <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 opacity-90 flex items-center">
             {meta.icon} <span className="ml-1.5">{meta.label}</span>
           </p>
-  
           {currentMsgData.error && currentMsgData.sender !== 'user' && (
-  
-            // Start of Error Message
              <div className="flex items-center gap-1 text-red-500 dark:text-red-400 mb-1 font-medium text-xs border-b border-red-200 dark:border-red-700 pb-1">
                 <AlertTriangleIcon className="w-3.5 h-3.5 flex-shrink-0" />
                 <span>Error: {currentMsgData.error === 'Interrupted by user' ? 'Stopped by user' : currentMsgData.error}</span>
              </div>
           )}
-         {/* End of Error Message */}
-  
           <div className="prose prose-sm dark:prose-invert max-w-none text-gray-800 dark:text-gray-100">
             <ReactMarkdown
               components={{
@@ -167,14 +157,12 @@ export function BuildInterface({
               {currentMsgData.content || (!currentMsgData.error && !currentMsgData.isDone ? '...' : '')}
             </ReactMarkdown>
           </div>
-  
           {currentMsgData.hasCodeArtifact && (
             <div className="mt-2 pt-1.5 border-t border-gray-300 dark:border-slate-600 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
               <FileCode2Icon className="w-3.5 h-3.5 flex-shrink-0 text-sky-600 dark:text-sky-400" />
               <span>Code applied to editor</span>
             </div>
           )}
-  
           {currentMsgData.sender === 'w2' && currentMsgData.parsedReview && (
             <div className="mt-2 pt-1.5 border-t border-gray-300 dark:border-slate-600">
                 <h4 className="text-xs font-semibold mb-0.5 text-gray-700 dark:text-gray-300">Review Summary:</h4>
@@ -194,7 +182,6 @@ export function BuildInterface({
                 )}
             </div>
           )}
-  
           <div className="flex justify-end items-center mt-1.5 text-xs opacity-70">
             {currentMsgData.isDone && !currentMsgData.error && (
                 <span title="Complete" className="text-green-600 dark:text-green-400 mr-1.5">✔️</span>
@@ -213,7 +200,6 @@ export function BuildInterface({
         )}
       </div>
     );
-    // End of Message Bubbles
   };
 
   const displayMessages: DisplayMessage[] = streamMessages.map((msg, index) => ({
@@ -222,7 +208,9 @@ export function BuildInterface({
   }));
 
   return (
-    <div className="flex flex-col h-full w-full bg-zinc-200">
+    // Outermost div for the whole BuildInterface
+    <div className="flex flex-col h-full w-full bg-zinc-200"> {/* Your zinc background */}
+      {/* Status Bar */}
       <div className="p-2 bg-zinc-300 border-b border-zinc-400/50 shadow-md text-xs flex items-center gap-4 flex-wrap">
         <span className="whitespace-nowrap">Stage: <b>{pipelineStage || 'Idle'}</b></span>
         <span className="flex-grow min-w-0"><span className="font-semibold">Status:</span> {statusMessage || 'Waiting for prompt...'}</span>
@@ -234,17 +222,22 @@ export function BuildInterface({
         )}
       </div>
         
-      {/* This div will contain Virtuoso and give it space to fill */}
-      <div className="flex-1 overflow-hidden w-full"> {/* p-4 gives padding like ScrollArea had */}
-        <Virtuoso
-          className="h-full w-full" // Tells Virtuoso to fill this container
-          data={displayMessages} // Give Virtuoso the full list of messages
-          itemContent={(index, msgData) => renderMessage(msgData, index)} // Tell Virtuoso to use your renderMessage function
-          followOutput={true} // For auto-scrolling chat behavior
-        />
-      </div>
+      {/* Virtuoso component takes up the remaining space and handles scrolling */}
+      <Virtuoso
+        className="flex-1 w-full" // flex-1 to grow, w-full to take full width
+        data={displayMessages}
+        itemContent={(index, msgData) => {
+          // This wrapper div centers each message content and adds horizontal padding
+          return (
+            <div className="px-4 max-w-4xl mx-auto"> {/* Centering and padding for each item */}
+              {renderMessage(msgData, index)}
+            </div>
+          );
+        }}
+        followOutput={true} // Should keep the view at the bottom for new messages
+      />
 
-      {/* We can keep these conditional messages below the Virtuoso area for now */}
+      {/* Conditional messages: "AI is thinking" or "Send a message" */}
       <div className="max-w-4xl mx-auto px-4 pb-2">
           {isStreaming && !isFinished && (
              <div className="flex justify-center items-center py-2">
@@ -252,12 +245,13 @@ export function BuildInterface({
              </div>
           )}
           {displayMessages.length === 0 && !isStreaming && !isFinished && (
-            <div className="text-center font-italic text-gray-400 mt-2">
+            <div className="text-center font-italic text-gray-400 mt-2"> {/* Your italic class */}
               Send a message to start the build.
             </div>
           )}
       </div>
 
+      {/* Input Form */}
       <form
         className="flex items-center gap-2 p-3 border-t bg-white dark:bg-slate-850"
         onSubmit={e => { e.preventDefault(); handleSendMessage(); }}
