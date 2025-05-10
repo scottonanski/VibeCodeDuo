@@ -1,12 +1,12 @@
 // components/ui/build-interface.tsx
-import React, { useState, useRef, useEffect } from 'react'; // <<< ADDED React and its hooks
+import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { Virtuoso } from 'react-virtuoso';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Input } from '@/components/ui/input';         // <<< ADDED Input
-import { Button } from '@/components/ui/button';       // <<< ADDED Button
-import { ScrollArea } from '@/components/ui/scroll-area'; // <<< ADDED ScrollArea
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { 
     AlertTriangleIcon, 
@@ -16,10 +16,10 @@ import {
     BrainIcon, 
     UsersIcon, 
     MessageSquareTextIcon 
-} from 'lucide-react';                                   // <<< ADDED lucide-react icons
+} from 'lucide-react';
 import type { BuildStreamMessage } from '@/hooks/useBuildStream';
 import type { Settings } from "@/components/ui/settings-panel";
-import { toast } from 'sonner';                             // <<< ADDED toast
+import { toast } from 'sonner';
 import type { AiChatMessage } from '@/lib/orchestration/stages/types';
 
 interface DisplayMessage extends BuildStreamMessage {
@@ -50,19 +50,8 @@ export function BuildInterface({
   startStream,
   stopStream
 }: BuildInterfaceProps) {
-  const [input, setInput] = useState('');
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (scrollAreaRef.current) {
-      const scrollViewport = scrollAreaRef.current.querySelector<HTMLDivElement>(':scope > div');
-      if (scrollViewport) {
-        setTimeout(() => {
-          scrollViewport.scrollTop = scrollViewport.scrollHeight;
-        }, 100);
-      }
-    }
-  }, [streamMessages]);
+  const [input, setInput] = useState('');
 
   const handleSendMessage = async () => {
     if (isStreaming) {
@@ -79,6 +68,7 @@ export function BuildInterface({
     }
 
     const initialUserMessage: AiChatMessage = { role: 'user', content: input.trim() };
+
     const payload = {
       messages: [initialUserMessage],
       worker1: { provider: settings.provider, model: settings.worker1Model },
@@ -117,14 +107,123 @@ export function BuildInterface({
     return meta;
   };
 
+  const renderMessage = (currentMsgData: DisplayMessage, idx: number) => {
+    const meta = getSenderMeta(currentMsgData.sender, currentMsgData.error);
+    
+    return (
+      
+      // Start of Message Bubbles
+      <div key={currentMsgData.id} className={cn('flex items-start gap-3', meta.alignment)}>
+        {currentMsgData.sender !== 'user' && (
+          <Avatar className="w-8 h-8 border shadow-sm flex-shrink-0">
+            <AvatarFallback className={cn('text-xs font-semibold', meta.avatarColor)} title={meta.tooltip}>
+              {meta.avatarInitial}
+            </AvatarFallback>
+          </Avatar>
+        )}
+  
+        {/* Start of Message Content */}
+        <div className={cn('relative rounded-lg p-3 text-sm max-w-[90%] shadow-sm break-words mb-10', meta.bubbleClass)}>
+          <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 opacity-90 flex items-center">
+            {meta.icon} <span className="ml-1.5">{meta.label}</span>
+          </p>
+  
+          {currentMsgData.error && currentMsgData.sender !== 'user' && (
+  
+            // Start of Error Message
+             <div className="flex items-center gap-1 text-red-500 dark:text-red-400 mb-1 font-medium text-xs border-b border-red-200 dark:border-red-700 pb-1">
+                <AlertTriangleIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>Error: {currentMsgData.error === 'Interrupted by user' ? 'Stopped by user' : currentMsgData.error}</span>
+             </div>
+          )}
+         {/* End of Error Message */}
+  
+          <div className="prose prose-sm dark:prose-invert max-w-none text-gray-800 dark:text-gray-100">
+            <ReactMarkdown
+              components={{
+                code({ node, inline, className, children, ...props }: any) {
+                  const match = /language-(\w+)/.exec(className || '');
+                  if (!inline && match) {
+                    return (
+                      <SyntaxHighlighter
+                        style={atomDark}
+                        language={match[1]}
+                        PreTag="div"
+                        {...props}
+                        customStyle={{ margin: '0.5em 0', fontSize: '0.875em', borderRadius: '0.25rem'}}
+                      >
+                        {String(children).replace(/\n$/, '')}
+                      </SyntaxHighlighter>
+                    );
+                  }
+                  return (
+                    <code className={cn(className, "bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded text-xs")} {...props}>
+                      {children}
+                    </code>
+                  );
+                }
+              }}
+            >
+              {currentMsgData.content || (!currentMsgData.error && !currentMsgData.isDone ? '...' : '')}
+            </ReactMarkdown>
+          </div>
+  
+          {currentMsgData.hasCodeArtifact && (
+            <div className="mt-2 pt-1.5 border-t border-gray-300 dark:border-slate-600 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+              <FileCode2Icon className="w-3.5 h-3.5 flex-shrink-0 text-sky-600 dark:text-sky-400" />
+              <span>Code applied to editor</span>
+            </div>
+          )}
+  
+          {currentMsgData.sender === 'w2' && currentMsgData.parsedReview && (
+            <div className="mt-2 pt-1.5 border-t border-gray-300 dark:border-slate-600">
+                <h4 className="text-xs font-semibold mb-0.5 text-gray-700 dark:text-gray-300">Review Summary:</h4>
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                    <strong>Status:</strong> {currentMsgData.parsedReview.status} <br />
+                    <strong>Action for W1:</strong> {currentMsgData.parsedReview.next_action_for_w1}
+                </p>
+                {currentMsgData.parsedReview.key_issues && currentMsgData.parsedReview.key_issues.length > 0 && (
+                     <details className="mt-1 text-xs">
+                        <summary className="cursor-pointer text-gray-500 dark:text-gray-400 hover:underline">Key Issues ({currentMsgData.parsedReview.key_issues.length})</summary>
+                        <ul className="list-disc pl-4 mt-1 text-gray-600 dark:text-gray-400 space-y-0.5">
+                            {currentMsgData.parsedReview.key_issues.map((issue, index) => (
+                                <li key={index}>{issue}</li>
+                            ))}
+                        </ul>
+                    </details>
+                )}
+            </div>
+          )}
+  
+          <div className="flex justify-end items-center mt-1.5 text-xs opacity-70">
+            {currentMsgData.isDone && !currentMsgData.error && (
+                <span title="Complete" className="text-green-600 dark:text-green-400 mr-1.5">✔️</span>
+            )}
+            <span className="text-gray-500 dark:text-gray-400">
+              {new Date(currentMsgData.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </div>
+        </div>
+        {currentMsgData.sender === 'user' && (
+          <Avatar className="w-8 h-8 border shadow-sm flex-shrink-0">
+            <AvatarFallback className={cn('text-xs font-semibold', meta.avatarColor)} title={meta.tooltip}>
+              {meta.avatarInitial}
+            </AvatarFallback>
+          </Avatar>
+        )}
+      </div>
+    );
+    // End of Message Bubbles
+  };
+
   const displayMessages: DisplayMessage[] = streamMessages.map((msg, index) => ({
     ...msg,
     timestamp: Date.now() + index, 
   }));
 
   return (
-    <div className="flex flex-col h-full dark:bg-slate-900">
-      <div className="p-2 bg-slate-100 dark:bg-slate-800 border-b text-xs flex items-center gap-4 flex-wrap">
+    <div className="flex flex-col h-full w-full bg-zinc-200">
+      <div className="p-2 bg-zinc-300 border-b border-zinc-400/50 shadow-md text-xs flex items-center gap-4 flex-wrap">
         <span className="whitespace-nowrap">Stage: <b>{pipelineStage || 'Idle'}</b></span>
         <span className="flex-grow min-w-0"><span className="font-semibold">Status:</span> {statusMessage || 'Waiting for prompt...'}</span>
         {isFinished && !globalError && <span className="text-green-600 font-semibold whitespace-nowrap">Pipeline finished ✔️</span>}
@@ -134,118 +233,30 @@ export function BuildInterface({
           </span>
         )}
       </div>
-      
-      <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
-        <div className="space-y-4 max-w-4xl mx-auto">
-          {displayMessages.map((msg) => {
-            const meta = getSenderMeta(msg.sender, msg.error);
-            return (
-              <div key={msg.id} className={cn('flex items-start gap-3', meta.alignment)}>
-                {msg.sender !== 'user' && (
-                  <Avatar className="w-8 h-8 border shadow-sm flex-shrink-0">
-                    <AvatarFallback className={cn('text-xs font-semibold', meta.avatarColor)} title={meta.tooltip}>
-                      {meta.avatarInitial}
-                    </AvatarFallback>
-                  </Avatar>
-                )}
-                <div className={cn('relative rounded-lg p-3 text-sm max-w-[85%] shadow-sm break-words', meta.bubbleClass)}>
-                  <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1 opacity-90 flex items-center">
-                    {meta.icon} <span className="ml-1.5">{meta.label}</span>
-                  </p>
+        
+      {/* This div will contain Virtuoso and give it space to fill */}
+      <div className="flex-1 overflow-hidden w-full"> {/* p-4 gives padding like ScrollArea had */}
+        <Virtuoso
+          className="h-full w-full" // Tells Virtuoso to fill this container
+          data={displayMessages} // Give Virtuoso the full list of messages
+          itemContent={(index, msgData) => renderMessage(msgData, index)} // Tell Virtuoso to use your renderMessage function
+          followOutput={true} // For auto-scrolling chat behavior
+        />
+      </div>
 
-                  {msg.error && msg.sender !== 'user' && (
-                     <div className="flex items-center gap-1 text-red-500 dark:text-red-400 mb-1 font-medium text-xs border-b border-red-200 dark:border-red-700 pb-1">
-                        <AlertTriangleIcon className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span>Error: {msg.error === 'Interrupted by user' ? 'Stopped by user' : msg.error}</span>
-                     </div>
-                  )}
-
-                  <div className="prose prose-sm dark:prose-invert max-w-none text-gray-800 dark:text-gray-100">
-                    <ReactMarkdown
-                      components={{
-                        code({ node, inline, className, children, ...props }: any) {
-                          const match = /language-(\w+)/.exec(className || '');
-                          if (!inline && match) {
-                            return (
-                              <SyntaxHighlighter
-                                style={atomDark}
-                                language={match[1]}
-                                PreTag="div"
-                                {...props}
-                                customStyle={{ margin: '0.5em 0', fontSize: '0.875em', borderRadius: '0.25rem'}}
-                              >
-                                {String(children).replace(/\n$/, '')}
-                              </SyntaxHighlighter>
-                            );
-                          }
-                          return (
-                            <code className={cn(className, "bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded text-xs")} {...props}>
-                              {children}
-                            </code>
-                          );
-                        }
-                      }}
-                    >
-                      {msg.content || (!msg.error && !msg.isDone ? '...' : '')}
-                    </ReactMarkdown>
-                  </div>
-
-                  {msg.hasCodeArtifact && (
-                    <div className="mt-2 pt-1.5 border-t border-gray-300 dark:border-slate-600 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
-                      <FileCode2Icon className="w-3.5 h-3.5 flex-shrink-0 text-sky-600 dark:text-sky-400" />
-                      <span>Code applied to editor</span>
-                    </div>
-                  )}
-
-                  {msg.sender === 'w2' && msg.parsedReview && (
-                    <div className="mt-2 pt-1.5 border-t border-gray-300 dark:border-slate-600">
-                        <h4 className="text-xs font-semibold mb-0.5 text-gray-700 dark:text-gray-300">Review Summary:</h4>
-                        <p className="text-xs text-gray-600 dark:text-gray-400">
-                            <strong>Status:</strong> {msg.parsedReview.status} <br />
-                            <strong>Action for W1:</strong> {msg.parsedReview.next_action_for_w1}
-                        </p>
-                        {msg.parsedReview.key_issues && msg.parsedReview.key_issues.length > 0 && (
-                             <details className="mt-1 text-xs">
-                                <summary className="cursor-pointer text-gray-500 dark:text-gray-400 hover:underline">Key Issues ({msg.parsedReview.key_issues.length})</summary>
-                                <ul className="list-disc pl-4 mt-1 text-gray-600 dark:text-gray-400 space-y-0.5">
-                                    {msg.parsedReview.key_issues.map((issue, index) => (
-                                        <li key={index}>{issue}</li>
-                                    ))}
-                                </ul>
-                            </details>
-                        )}
-                    </div>
-                  )}
-
-                  <div className="flex justify-end items-center mt-1.5 text-xs opacity-70">
-                    {msg.isDone && !msg.error && (
-                        <span title="Complete" className="text-green-600 dark:text-green-400 mr-1.5">✔️</span>
-                    )}
-                    <span className="text-gray-500 dark:text-gray-400">
-                      {new Date(msg.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                </div>
-                {msg.sender === 'user' && (
-                  <Avatar className="w-8 h-8 border shadow-sm flex-shrink-0">
-                    <AvatarFallback className={cn('text-xs font-semibold', meta.avatarColor)} title={meta.tooltip}>
-                      {meta.avatarInitial}
-                    </AvatarFallback>
-                  </Avatar>
-                )}
-              </div>
-            );
-          })}
+      {/* We can keep these conditional messages below the Virtuoso area for now */}
+      <div className="max-w-4xl mx-auto px-4 pb-2">
           {isStreaming && !isFinished && (
              <div className="flex justify-center items-center py-2">
                  <div className="text-sm text-gray-500 dark:text-gray-400 italic">AI is thinking...</div>
              </div>
           )}
-          {displayMessages.filter(m => m.sender !== 'user').length === 0 && !isStreaming && !isFinished && (
-            <div className="text-center text-gray-500 dark:text-gray-400 mt-8">Send a message to start the build.</div>
+          {displayMessages.length === 0 && !isStreaming && !isFinished && (
+            <div className="text-center font-italic text-gray-400 mt-2">
+              Send a message to start the build.
+            </div>
           )}
-        </div>
-      </ScrollArea>
+      </div>
 
       <form
         className="flex items-center gap-2 p-3 border-t bg-white dark:bg-slate-850"
@@ -272,5 +283,3 @@ export function BuildInterface({
     </div>
   );
 }
-
-// Removed default export from here if it's already in the component declaration
