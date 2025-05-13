@@ -1,7 +1,7 @@
 // components/ui/build-interface.tsx
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Virtuoso } from 'react-virtuoso';
+import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -221,6 +221,23 @@ export function BuildInterface({
     timestamp: Date.now() + index, 
   }));
 
+  // Create a ref to control the Virtuoso instance
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    if (virtuosoRef.current && displayMessages.length > 0) {
+      // Use requestAnimationFrame to ensure the DOM has updated
+      requestAnimationFrame(() => {
+        virtuosoRef.current?.scrollToIndex({
+          index: displayMessages.length - 1,
+          behavior: 'smooth',
+          align: 'end'
+        });
+      });
+    }
+  }, [displayMessages]);
+
   return (
     <div className="flex flex-col h-full w-full bg-zinc-200">
       <div className="p-2 bg-zinc-300 border-b border-zinc-400/50 shadow-md text-xs flex items-center gap-4 flex-wrap">
@@ -237,10 +254,22 @@ export function BuildInterface({
       {/* This div will contain Virtuoso and give it space to fill */}
       <div className="flex-1 overflow-hidden w-full"> {/* p-4 gives padding like ScrollArea had */}
         <Virtuoso
-          className="h-full w-full" // Tells Virtuoso to fill this container
-          data={displayMessages} // Give Virtuoso the full list of messages
-          itemContent={(index, msgData) => renderMessage(msgData, index)} // Tell Virtuoso to use your renderMessage function
-          followOutput={true} // For auto-scrolling chat behavior
+          ref={virtuosoRef}
+          className="h-full w-full"
+          data={displayMessages}
+          itemContent={(index, msgData) => renderMessage(msgData, index)}
+          followOutput={true}
+          initialTopMostItemIndex={displayMessages.length > 0 ? displayMessages.length - 1 : 0}
+          atBottomStateChange={(atBottom) => {
+            // This helps maintain the auto-scroll state
+            if (atBottom) {
+              virtuosoRef.current?.scrollToIndex({
+                index: displayMessages.length - 1,
+                behavior: 'smooth',
+                align: 'end'
+              });
+            }
+          }}
         />
       </div>
 
