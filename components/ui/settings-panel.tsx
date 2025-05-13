@@ -88,10 +88,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ open, initialSetti
       setError("Please select models for both workers.");
       return;
     }
-    if (worker1Model === worker2Model) {
-      setError("Worker 1 and Worker 2 must use different models.");
-      return;
-    }
     setError("");
     // For now, we'll pass a default/placeholder refiner model or the initial one if available.
     // The UI doesn't yet select it. This needs to be decided based on how refinerModel is managed.
